@@ -1,0 +1,9 @@
+{
+  "topic": "Hacker News, AI, coding, startup opportunities",
+  "per_feed_limit": 5,
+  "timeout": 30,
+  "retries": 3,
+  "retry_delay": 2.0,
+  "analysis_mode": "auto",
+  "log_level": "INFO"
+}

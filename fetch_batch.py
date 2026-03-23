@@ -1,0 +1,492 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Iterable
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree as ET
+
+from dedupe import dedupe_items
+from logging_utils import setup_logger
+from policies.fetch_policy import LOW_SIGNAL_KEYWORDS, LOW_SIGNAL_PATTERNS, TOPIC_KEYWORDS
+from policies.scoring_policy import get_effective_limit
+from settings import load_settings
+from state_utils import atomic_write_json, atomic_write_text
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_FEEDS_FILE = ROOT / "feeds.txt"
+DEFAULT_OUTPUT_DIR = ROOT / "inputs"
+DEFAULT_SCORES_FILE = ROOT / "feed_scores.json"
+
+
+@dataclass
+class FeedItem:
+    title: str
+    source: str
+    source_feed_url: str
+    date: str
+    link: str
+    item_type: str
+    summary: str
+
+
+def utc_now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def load_feed_urls(path: Path) -> list[str]:
+    urls: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        urls.append(line)
+    return urls
+
+
+def load_feed_scores(path: Path = DEFAULT_SCORES_FILE) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_feed_scores(scores: dict[str, dict], path: Path = DEFAULT_SCORES_FILE) -> None:
+    atomic_write_json(path, scores)
+
+
+def get_feed_score(scores: dict[str, dict], feed_url: str) -> float:
+    record = scores.get(feed_url, {})
+    return float(record.get("score", 50.0))
+
+
+def order_feed_urls(feed_urls: list[str], scores: dict[str, dict]) -> list[str]:
+    ordered = sorted(feed_urls, key=lambda url: (-get_feed_score(scores, url), url))
+    if len(ordered) <= 3:
+        return ordered
+
+    locked = ordered[:2]
+    remainder = ordered[2:]
+    remainder.sort(
+        key=lambda url: (
+            int(scores.get(url, {}).get("attempts", 0)),
+            get_feed_score(scores, url),
+            url,
+        )
+    )
+    explore_pick = remainder.pop(0) if remainder else None
+    return locked + ([explore_pick] if explore_pick else []) + remainder
+
+
+def update_feed_record(
+    existing: dict,
+    *,
+    source_name: str,
+    fetched: int,
+    kept: int,
+    filtered: int,
+    status: str,
+) -> dict:
+    record = dict(existing) if existing else {}
+    attempts = int(record.get("attempts", 0)) + 1
+    successes = int(record.get("successes", 0)) + (1 if status == "ok" else 0)
+    total_fetched = int(record.get("total_fetched", 0)) + fetched
+    total_kept = int(record.get("total_kept", 0)) + kept
+    total_filtered = int(record.get("total_filtered", 0)) + filtered
+    success_rate = successes / attempts if attempts else 0.0
+    kept_rate = total_kept / total_fetched if total_fetched else 0.0
+    volume_factor = min(total_kept / 20.0, 1.0)
+    quality_score = round(100 * (0.45 * success_rate + 0.4 * kept_rate + 0.15 * volume_factor), 2)
+    analysis_value_score = float(record.get("analysis_value_score", 50.0))
+    score = round(0.7 * quality_score + 0.3 * analysis_value_score, 2)
+
+    record.update(
+        {
+            "source": source_name,
+            "attempts": attempts,
+            "successes": successes,
+            "total_fetched": total_fetched,
+            "total_kept": total_kept,
+            "total_filtered": total_filtered,
+            "success_rate": round(success_rate, 4),
+            "kept_rate": round(kept_rate, 4),
+            "quality_score": quality_score,
+            "analysis_value_score": analysis_value_score,
+            "score": score,
+            "last_status": status,
+            "last_updated": utc_now_iso(),
+        }
+    )
+    return record
+
+
+def fetch_feed(url: str, timeout: int = 20, retries: int = 2, retry_delay: float = 1.5) -> bytes:
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            request = Request(url, headers={"User-Agent": "NewsPilot-IsolatedRSSAgent/0.1"})
+            with urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(retry_delay * (attempt + 1))
+    if last_error is None:
+        raise RuntimeError(f"Unknown fetch failure for {url}")
+    raise last_error
+
+
+def normalize_text(value: str | None, limit: int = 280) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", str(value))
+    text = " ".join(text.split())
+    return text[:limit].strip()
+
+
+def is_relevant_item(item: FeedItem) -> tuple[bool, str]:
+    haystack = f"{item.title} {item.summary}".lower()
+    if any(re.search(pattern, haystack) for pattern in LOW_SIGNAL_PATTERNS):
+        return False, "low_signal_pattern"
+    if any(keyword in haystack for keyword in LOW_SIGNAL_KEYWORDS):
+        return False, "low_signal_keyword"
+    if any(keyword in haystack for keyword in TOPIC_KEYWORDS):
+        return True, "topic_match"
+    if item.source.lower() == "hacker news":
+        return True, "hn_keep"
+    return False, "no_topic_match"
+
+
+def strip_tag(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def find_child_text(element: ET.Element, *names: str) -> str:
+    wanted = set(names)
+    for child in list(element):
+        if strip_tag(child.tag) in wanted:
+            return normalize_text(child.text)
+    return ""
+
+
+def parse_feed(content: bytes, feed_url: str, limit: int) -> tuple[str, list[FeedItem]]:
+    root = ET.fromstring(content)
+    root_name = strip_tag(root.tag).lower()
+
+    if root_name == "rss":
+        channel = next((child for child in list(root) if strip_tag(child.tag) == "channel"), None)
+        if channel is None:
+            return feed_url, []
+
+        source = find_child_text(channel, "title") or feed_url
+        items: list[FeedItem] = []
+        for item in [child for child in list(channel) if strip_tag(child.tag) == "item"][:limit]:
+            items.append(
+                FeedItem(
+                    title=find_child_text(item, "title") or "(untitled)",
+                    source=source,
+                    source_feed_url=feed_url,
+                    date=find_child_text(item, "pubDate", "published", "updated") or "unknown",
+                    link=find_child_text(item, "link"),
+                    item_type="RSS entry",
+                    summary=find_child_text(item, "description", "summary") or find_child_text(item, "title"),
+                )
+            )
+        return source, items
+
+    if root_name == "feed":
+        source = find_child_text(root, "title") or feed_url
+        items: list[FeedItem] = []
+        for entry in [child for child in list(root) if strip_tag(child.tag) == "entry"][:limit]:
+            link = ""
+            for child in list(entry):
+                if strip_tag(child.tag) != "link":
+                    continue
+                href = child.attrib.get("href")
+                if href:
+                    link = href
+                    break
+                if child.text:
+                    link = normalize_text(child.text)
+                    break
+            items.append(
+                FeedItem(
+                    title=find_child_text(entry, "title") or "(untitled)",
+                    source=source,
+                    source_feed_url=feed_url,
+                    date=find_child_text(entry, "published", "updated") or "unknown",
+                    link=link,
+                    item_type="Atom entry",
+                    summary=find_child_text(entry, "summary", "content") or find_child_text(entry, "title"),
+                )
+            )
+        return source, items
+
+    return feed_url, []
+
+
+def extract_items(
+    feed_url: str,
+    limit: int,
+    timeout: int,
+    retries: int,
+    retry_delay: float,
+) -> tuple[list[FeedItem], str | None]:
+    try:
+        content = fetch_feed(feed_url, timeout=timeout, retries=retries, retry_delay=retry_delay)
+        _source, items = parse_feed(content, feed_url, limit)
+    except (HTTPError, URLError, TimeoutError, OSError, ET.ParseError) as exc:
+        return [], f"{feed_url} -> {type(exc).__name__}: {exc}"
+    if not items:
+        return [], f"{feed_url} -> no parsable entries found"
+
+    for item in items:
+        if item.summary.lower() == "comments":
+            item.summary = item.title
+    return items, None
+
+
+def render_markdown(
+    topic: str,
+    items: Iterable[FeedItem],
+    errors: list[str],
+    source_stats: list[dict[str, str | int | float]],
+) -> str:
+    collected_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines = [
+        "# RSS Input Batch",
+        "",
+        "## Batch Metadata",
+        f"- Topic: {topic}",
+        f"- Collected At: {collected_at}",
+        "- Collector: fetch_batch.py",
+        "- Notes: Auto-generated from RSS feeds in the isolated experiment area.",
+        "",
+        "## Source Stats",
+        "",
+    ]
+
+    for stat in source_stats:
+        lines.append(
+            f"- {stat['feed_url']} | source={stat['source']} | fetched={stat['fetched']} | kept={stat['kept']} | filtered={stat['filtered']} | status={stat['status']} | previous_score={stat['previous_score']} | current_score={stat['current_score']} | effective_limit={stat['effective_limit']}"
+        )
+
+    lines.extend(["", "## Items", ""])
+
+    for index, item in enumerate(items, start=1):
+        lines.extend(
+            [
+                f"### {index}. {item.title}",
+                f"- Source: {item.source}",
+                f"- Source Feed: {item.source_feed_url}",
+                f"- Date: {item.date}",
+                f"- Link: {item.link}",
+                f"- Type: {item.item_type}",
+                f"- Summary: {item.summary}",
+                "",
+            ]
+        )
+
+    if errors:
+        lines.extend(["## Fetch Errors", ""])
+        for error in errors:
+            lines.append(f"- {error}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_batch_json(
+    topic: str,
+    output_path: Path,
+    items: list[FeedItem],
+    errors: list[str],
+    source_stats: list[dict[str, str | int | float]],
+) -> dict:
+    return {
+        "schema": "rss_batch.json",
+        "topic": topic,
+        "generated_at": utc_now_iso(),
+        "markdown_path": str(output_path),
+        "item_count": len(items),
+        "error_count": len(errors),
+        "source_stats": source_stats,
+        "items": [asdict(item) for item in items],
+        "errors": errors,
+    }
+
+
+def write_batch_outputs(
+    output_path: Path,
+    topic: str,
+    items: list[FeedItem],
+    errors: list[str],
+    source_stats: list[dict[str, str | int | float]],
+) -> None:
+    atomic_write_text(output_path, render_markdown(topic, items, errors, source_stats))
+    atomic_write_json(
+        output_path.with_suffix(".json"),
+        build_batch_json(topic, output_path, items, errors, source_stats),
+    )
+
+
+def run_fetch(
+    feeds_file: Path = DEFAULT_FEEDS_FILE,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    topic: str = "General RSS batch",
+    per_feed_limit: int = 5,
+    output_name: str | None = None,
+    timeout: int = 20,
+    retries: int = 2,
+    retry_delay: float = 1.5,
+    scores_file: Path = DEFAULT_SCORES_FILE,
+    log_level: str | None = None,
+) -> tuple[Path, int, list[str], list[dict[str, str | int | float]]]:
+    logger = setup_logger("rss_agent.fetch", log_level or str(load_settings().get("log_level", "INFO")))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    feed_urls = load_feed_urls(feeds_file)
+    score_state = load_feed_scores(scores_file)
+    ordered_feed_urls = order_feed_urls(feed_urls, score_state)
+    all_items: list[FeedItem] = []
+    errors: list[str] = []
+    source_stats: list[dict[str, str | int | float]] = []
+
+    for feed_url in ordered_feed_urls:
+        previous_score = get_feed_score(score_state, feed_url)
+        previous_record = score_state.get(feed_url, {})
+        effective_limit = get_effective_limit(per_feed_limit, previous_score, int(previous_record.get("attempts", 0)))
+        items, error = extract_items(
+            feed_url,
+            effective_limit,
+            timeout=timeout,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+
+        if error:
+            logger.warning("fetch_failed feed=%s error=%s", feed_url, error)
+            errors.append(error)
+            updated_record = update_feed_record(
+                score_state.get(feed_url, {}),
+                source_name=feed_url,
+                fetched=0,
+                kept=0,
+                filtered=0,
+                status="error",
+            )
+            score_state[feed_url] = updated_record
+            source_stats.append(
+                {
+                    "feed_url": feed_url,
+                    "source": feed_url,
+                    "fetched": 0,
+                    "kept": 0,
+                    "filtered": 0,
+                    "status": "error",
+                    "previous_score": previous_score,
+                    "current_score": updated_record["score"],
+                    "effective_limit": effective_limit,
+                }
+            )
+            continue
+
+        kept_items: list[FeedItem] = []
+        filtered_count = 0
+        for item in items:
+            keep, _reason = is_relevant_item(item)
+            if keep:
+                kept_items.append(item)
+            else:
+                filtered_count += 1
+
+        deduped_items = dedupe_items(kept_items)
+        dedupe_filtered = max(0, len(kept_items) - len(deduped_items))
+        source_name = items[0].source if items else feed_url
+        updated_record = update_feed_record(
+            score_state.get(feed_url, {}),
+            source_name=source_name,
+            fetched=len(items),
+            kept=len(deduped_items),
+            filtered=filtered_count + dedupe_filtered,
+            status="ok",
+        )
+        score_state[feed_url] = updated_record
+        source_stats.append(
+            {
+                "feed_url": feed_url,
+                "source": source_name,
+                "fetched": len(items),
+                "kept": len(deduped_items),
+                "filtered": filtered_count + dedupe_filtered,
+                "status": "ok",
+                "previous_score": previous_score,
+                "current_score": updated_record["score"],
+                "effective_limit": effective_limit,
+            }
+        )
+        all_items.extend(deduped_items)
+
+    all_items = dedupe_items(all_items)
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    output_name = output_name or f"{timestamp}-rss-batch.md"
+    output_path = output_dir / output_name
+    write_batch_outputs(output_path, topic, all_items, errors, source_stats)
+    save_feed_scores(score_state, scores_file)
+    logger.info("fetch_completed output=%s items=%s errors=%s", output_path, len(all_items), len(errors))
+    return output_path, len(all_items), errors, source_stats
+
+
+def main() -> int:
+    settings = load_settings()
+    parser = argparse.ArgumentParser(description="Fetch RSS feeds into normalized Markdown and JSON batches.")
+    parser.add_argument("--feeds-file", default=str(DEFAULT_FEEDS_FILE))
+    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--topic", default=str(settings["topic"]))
+    parser.add_argument("--per-feed-limit", type=int, default=int(settings["per_feed_limit"]))
+    parser.add_argument("--output-name", default=None)
+    parser.add_argument("--timeout", type=int, default=int(settings["timeout"]))
+    parser.add_argument("--retries", type=int, default=int(settings["retries"]))
+    parser.add_argument("--retry-delay", type=float, default=float(settings["retry_delay"]))
+    parser.add_argument("--scores-file", default=str(DEFAULT_SCORES_FILE))
+    parser.add_argument("--log-level", default=str(settings["log_level"]))
+    args = parser.parse_args()
+
+    output_path, item_count, errors, source_stats = run_fetch(
+        feeds_file=Path(args.feeds_file),
+        output_dir=Path(args.output_dir),
+        topic=args.topic,
+        per_feed_limit=args.per_feed_limit,
+        output_name=args.output_name,
+        timeout=args.timeout,
+        retries=args.retries,
+        retry_delay=args.retry_delay,
+        scores_file=Path(args.scores_file),
+        log_level=args.log_level,
+    )
+
+    print(f"saved={output_path}")
+    print(f"saved_json={output_path.with_suffix('.json')}")
+    print(f"items={item_count}")
+    if errors:
+        print(f"errors={len(errors)}")
+        for error in errors:
+            print(error)
+    for stat in source_stats:
+        print(
+            f"source={stat['source']} fetched={stat['fetched']} kept={stat['kept']} filtered={stat['filtered']} status={stat['status']} previous_score={stat['previous_score']} current_score={stat['current_score']} effective_limit={stat['effective_limit']}"
+        )
+    return 0 if item_count else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

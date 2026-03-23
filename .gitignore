@@ -1,0 +1,8 @@
+inputs/
+outputs/
+.env.local
+logs/
+__pycache__/
+*.pyc
+*.tmp
+feed_scores.json

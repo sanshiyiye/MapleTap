@@ -1,0 +1,14 @@
+# One feed URL per line.
+# This file is only used by the isolated experiment area.
+#
+# Current focus:
+# - Hacker News / YC ecosystem
+# - startup and developer tooling news
+# - product and engineering updates relevant to AI / coding / founders
+
+https://news.ycombinator.com/rss
+https://techcrunch.com/feed/
+https://github.blog/feed/
+https://36kr.com/feed
+https://www.wired.com/feed/rss
+https://www.technologyreview.com/feed/
