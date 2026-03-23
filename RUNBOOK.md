@@ -61,6 +61,19 @@ Reset score state:
 python isolated_rss_codex_agent/cli.py score reset
 ```
 
+Archive older batch files (keeps newest batch by mtime; use `--keep-batch-stem` to pin):
+
+```bash
+python isolated_rss_codex_agent/cli.py archive --dry-run -v
+python isolated_rss_codex_agent/cli.py archive
+```
+
+Watch mode (repeat every N seconds; Ctrl+C to stop):
+
+```bash
+python isolated_rss_codex_agent/cli.py archive --interval 3600
+```
+
 ## Runtime behavior
 
 - `fetch` writes Markdown and JSON batch files.

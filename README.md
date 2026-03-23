@@ -27,6 +27,7 @@ Available commands:
 - `report`
 - `score show`
 - `score reset`
+- `archive`（可选 `--interval` 持续按间隔归档旧批次）
 
 ## Important files
 
@@ -87,6 +88,19 @@ Generate score report:
 
 ```bash
 python isolated_rss_codex_agent/cli.py report
+```
+
+归档旧批次（保留最新的 `*-rss-batch` 及配对的 `*-rss-analysis` / `*-skill-analysis`，不动 `README.md` 与 `feed_scores_report.md`）：
+
+```bash
+python isolated_rss_codex_agent/cli.py archive
+python isolated_rss_codex_agent/cli.py archive --dry-run -v
+```
+
+持续每隔 N 秒执行一次归档（适合长期跑 pipeline 时后台清理）：
+
+```bash
+python isolated_rss_codex_agent/cli.py archive --interval 3600
 ```
 
 ## Validation status
