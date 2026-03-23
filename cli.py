@@ -11,6 +11,7 @@ from archive_batches import run_archive
 from errors import ConfigError, RSSAgentError, get_exit_code
 from feed_report import DEFAULT_REPORT_PATH, generate_report
 from fetch_batch import DEFAULT_SCORES_FILE, load_feed_scores, run_fetch, save_feed_scores
+from interactive_cli import run_interactive_menu
 from run_codex_pipeline import run_pipeline
 from settings import load_settings
 from skill_runtime import load_local_env
@@ -130,6 +131,10 @@ def cmd_score_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_interactive(_args: argparse.Namespace) -> int:
+    return run_interactive_menu()
+
+
 def cmd_archive(args: argparse.Namespace) -> int:
     inputs_dir = Path(args.inputs_dir)
     outputs_dir = Path(args.outputs_dir)
@@ -192,6 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python cli.py run --analysis-mode auto\n"
             "  python cli.py archive --dry-run -v\n"
             "  python cli.py archive --interval 3600\n"
+            "  python cli.py interactive\n"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -206,6 +212,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     check_parser.set_defaults(func=cmd_check)
+
+    interactive_parser = subparsers.add_parser(
+        "interactive",
+        help="Interactive menu (TTY only); wraps the same commands as the non-interactive CLI.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python cli.py interactive\n"
+        ),
+    )
+    interactive_parser.set_defaults(func=cmd_interactive)
 
     fetch_parser = subparsers.add_parser(
         "fetch",

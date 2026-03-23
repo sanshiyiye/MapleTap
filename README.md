@@ -21,6 +21,7 @@ python isolated_rss_codex_agent/cli.py --help
 Available commands:
 
 - `check`
+- `interactive`（TTY 数字菜单，内部调用与其它子命令相同逻辑）
 - `fetch`
 - `analyze`
 - `run`
@@ -48,7 +49,7 @@ Available commands:
 
 Each batch now produces both:
 
-- Markdown for human review
+- Markdown for human review（版式与参考报告一致：逐条分析**不含**「原文链接」行，文末**不**附 `Original Links`；链接见对应 `inputs/*-rss-batch.json`）
 - JSON for programmatic reuse
 
 Examples:
@@ -64,6 +65,12 @@ Check skill mode:
 
 ```bash
 python isolated_rss_codex_agent/cli.py check
+```
+
+交互菜单（需在真实终端中运行）：
+
+```bash
+python isolated_rss_codex_agent/cli.py interactive
 ```
 
 Fetch only:

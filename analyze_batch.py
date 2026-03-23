@@ -218,19 +218,11 @@ def judgment_label(judgment: str) -> str:
     return mapping.get(judgment, f"[{judgment.upper()}]")
 
 
-def render_chinese_overview(analyses: list[dict[str, str | int]]) -> list[str]:
-    sources = sorted({str(item["source"]) for item in analyses})
-    top_items = analyses[:3]
-    top_titles = "；".join(str(item["title"]) for item in top_items)
-    return [
-        "本次 RSS 批次已完成重点机会筛选，输出优先级最高的内容以便先读先判断。",
-        f"当前共纳入 {len(analyses)} 条结果，来源包括：{', '.join(sources)}。",
-        f"优先关注的条目包括：{top_titles}。",
-        "建议先阅读 Top Picks 区块，再根据 Link 打开原文做进一步判断。",
-    ]
-
-
-def render_output(analyses: list[dict[str, str | int]], source_name: str, mode: str) -> str:
+def render_output(
+    analyses: list[dict[str, str | int]],
+    _source_name: str,
+    _mode: str,
+) -> str:
     sorted_items = sorted(analyses, key=lambda item: int(item["score"]), reverse=True)
     top_items = sorted_items[:5]
 
@@ -242,7 +234,7 @@ def render_output(analyses: list[dict[str, str | int]], source_name: str, mode: 
         if score >= 70:
             return "⭐⭐⭐ 中等机会"
         if score >= 60:
-            return "⭐⭐ 观察机会"
+            return "⭐⭐ 低机会"
         return "⭐ 低机会"
 
     def cn_type(raw_type: str) -> str:
@@ -278,22 +270,24 @@ def render_output(analyses: list[dict[str, str | int]], source_name: str, mode: 
         return points[:3]
 
     def action_text(item: dict[str, str | int]) -> str:
-        title = str(item["title"]).lower()
-        base = str(item["action"])
-        if any(k in title for k in ["ai", "agent", "llm", "copilot"]):
-            return base + "；可先做小范围 PoC，验证在现有流程中的提效幅度。"
-        if any(k in title for k in ["security", "outage", "incident"]):
-            return base + "；建议同步梳理可观测性与告警链路，明确可量化改进目标。"
-        return base + "；建议先用 1-2 个真实场景做验证，再扩大投入。"
+        # 与参考版式一致：建议动作为单句，不追加固定后缀
+        return str(item["action"])
+
+    sources = sorted({str(x["source"]) for x in sorted_items})
+    n_sources = len(sources)
+    n_items = len(sorted_items)
+    overview_line = (
+        f"本次采集涵盖 {n_sources} 个信源，共 {n_items} 条内容。"
+        f"筛选出与 AI、开发工具、SaaS、开源、创业/就业等相关方向，对当前批次条目逐条进行机会分析。"
+    )
 
     top3 = sorted_items[:3]
-    top_titles = "；".join(str(item["title"]) for item in top3)
     lines = [
         "# RSS 科技机会分析",
         "",
         "## 总览",
         "",
-        f"本次批次来自 `{source_name}`，分析模式 `{mode}`，共处理 {len(sorted_items)} 条内容。优先关注：{top_titles}。",
+        overview_line,
         "",
         "## 逐条分析",
         "",
@@ -314,7 +308,6 @@ def render_output(analyses: list[dict[str, str | int]], source_name: str, mode: 
                 "- **风险**：",
                 *[f"  - {point}" for point in risks],
                 f"- **建议动作**：{action_text(analysis)}",
-                f"- **原文链接**：{analysis['link']}",
                 "",
                 "---",
                 "",
@@ -352,29 +345,32 @@ def render_output(analyses: list[dict[str, str | int]], source_name: str, mode: 
         [
             "",
             "**关键趋势判断**：",
-            "- AI 与开发工具相关信号仍是当前批次主线，可优先跟进高分条目。",
-            "- 评分用于信息分诊，正式决策前需回到原文链接做二次判断。",
+            "- AI 与开发工具、开源与安全相关信号仍是当前批次主线，可优先跟进高分条目。",
+            "- 评分用于信息分诊，正式决策前请结合信源与业务场景自行复核。",
             "",
         ]
     )
     return "\n".join(lines)
 
 
-def render_original_links(items: list[NewsItem]) -> str:
-    lines = ["## Original Links", ""]
-    for index, item in enumerate(items, start=1):
-        lines.append(f"{index}. {item.title}")
-        lines.append(f"   - Source: {item.source}")
-        lines.append(f"   - Link: {item.link}")
-    lines.append("")
-    return "\n".join(lines)
-
-
 def ensure_output_appendices(raw_output: str, items: list[NewsItem]) -> str:
-    parts: list[str] = [raw_output.rstrip()]
-    if "## Original Links" not in raw_output:
-        parts.append(render_original_links(items).rstrip())
-    return "\n\n".join(parts) + "\n"
+    """
+    参考版式在「结论」处结束，不追加 Original Links（链接仍在 inputs JSON 中保留）。
+    """
+    _ = items  # 保留签名便于将来按需恢复附录
+    return raw_output.rstrip() + "\n"
+
+
+def _strip_tail_original_links(markdown: str) -> str:
+    """Remove trailing ## Original Links … (aligned with reference report; no appendix)."""
+    return re.sub(r"\n##\s+Original\s+Links\s*\n[\s\S]*\Z", "", markdown.rstrip(), flags=re.I).rstrip()
+
+
+def _normalize_skill_overview(text: str) -> str:
+    """Reference 总览为连续段落，去掉末尾多余分隔线。"""
+    t = (text or "").strip()
+    t = re.sub(r"\n+---\s*$", "", t)
+    return t.strip()
 
 
 def extract_section(markdown: str, heading: str, next_headings: list[str]) -> str:
@@ -415,30 +411,107 @@ def extract_single_value(body: str, labels: list[str]) -> str:
     return ""
 
 
+# (header text variant, canonical field key in Chinese)
+_CARD_HEADER_VARIANTS: list[tuple[str, str]] = [
+    ("摘要", "摘要"),
+    ("Summary", "摘要"),
+    ("机会类型", "机会类型"),
+    ("Opportunity Type", "机会类型"),
+    ("机会判断", "机会判断"),
+    ("Judgment", "机会判断"),
+    ("机会理由", "机会理由"),
+    ("Reason", "机会理由"),
+    ("风险", "风险"),
+    ("Risk", "风险"),
+    ("建议动作", "建议动作"),
+    ("Action", "建议动作"),
+    ("原文链接", "原文链接"),
+    ("Link", "原文链接"),
+]
+
+
+def _card_field_header_key(line: str) -> str | None:
+    """
+    If line opens a standard card field, return canonical key (中文).
+
+    Only lines with Markdown bold around the field name count as section headers,
+    e.g. `- **风险**：`. Plain `- 风险：一段话` is treated as a bullet (so mis-nested
+    `  - 风险：...` under 机会理由 does not end the section).
+    """
+    s = line.strip()
+    for variant, canon in _CARD_HEADER_VARIANTS:
+        pat_star = rf"^-\s*\*\*{re.escape(variant)}\*\*\s*[：:]\s*"
+        if re.match(pat_star, s, re.I):
+            return canon
+    return None
+
+
+def _bullet_inner_text(line: str) -> str | None:
+    s = line.strip()
+    if not s.startswith("- "):
+        return None
+    return s[2:].strip().replace("**", "")
+
+
+def _is_misnested_field_bullet(inner: str) -> bool:
+    """
+    Model sometimes nests 风险/建议动作/原文链接 bullets under 机会理由 or 风险.
+    Those should not appear as list items for that section.
+    """
+    low = inner.casefold()
+    prefixes = (
+        "风险：",
+        "风险:",
+        "建议动作：",
+        "建议动作:",
+        "原文链接：",
+        "原文链接:",
+        "link:",
+        "risk:",
+        "action:",
+    )
+    return any(inner.startswith(p) or low.startswith(p.casefold()) for p in prefixes)
+
+
 def extract_block_values(body: str, labels: list[str]) -> list[str]:
+    """
+    Collect bullet lines under the first matching section header in `labels`.
+
+    Stops at the next *top-level* card field (another - **xx**： header).
+    Skips bullets that look like wrongly nested 风险/建议动作/原文链接 lines.
+    """
+    lowered = {str(l).casefold() for l in labels}
+    if "机会理由" in labels or "reason" in lowered:
+        primary = "机会理由"
+    elif "风险" in labels or "risk" in lowered:
+        primary = "风险"
+    else:
+        primary = labels[0]
+
     lines = body.splitlines()
     collecting = False
     values: list[str] = []
     for raw_line in lines:
-        line = raw_line.rstrip()
-        normalized = line.strip().replace("**", "")
-        if any(normalized.startswith(f"- {label}：") or normalized.startswith(f"- {label}:") for label in labels):
-            collecting = True
+        key = _card_field_header_key(raw_line)
+        if not collecting:
+            if key == primary:
+                collecting = True
             continue
-        if collecting:
-            if normalized.startswith("- ") and not normalized.startswith("- " + "") and "：" in normalized:
-                break
-            stripped = normalized.lstrip("-").strip()
-            if not stripped:
-                continue
-            if stripped.startswith("- "):
-                stripped = stripped[2:].strip()
-            values.append(stripped)
+        if key is not None and key != primary:
+            break
+        inner = _bullet_inner_text(raw_line)
+        if inner is None:
+            continue
+        if _is_misnested_field_bullet(inner):
+            continue
+        values.append(inner)
     return values
 
 
 def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
+    raw_output = _strip_tail_original_links(raw_output)
     overview = extract_section(raw_output, "总览", ["逐条分析", "优先级排序", "结论", "Original Links"])
+    overview = _normalize_skill_overview(overview)
     cards_block = extract_section(raw_output, "逐条分析", ["优先级排序", "结论", "Original Links"])
     ranking = extract_section(raw_output, "优先级排序", ["结论", "Original Links"])
     conclusion = extract_section(raw_output, "结论", ["Original Links"])
@@ -461,7 +534,6 @@ def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
         opportunity_type = extract_single_value(body, ["机会类型", "Opportunity Type"])
         judgment = extract_single_value(body, ["机会判断", "Judgment"])
         action = extract_single_value(body, ["建议动作", "Action"])
-        link = extract_single_value(body, ["原文链接", "Link"]) or (item.link if item else "")
         reasons = extract_block_values(body, ["机会理由", "Reason"])
         risks = extract_block_values(body, ["风险", "Risk"])
 
@@ -488,7 +560,6 @@ def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
         lines.extend(
             [
                 f"- **建议动作**：{action}",
-                f"- **原文链接**：{link}",
                 "",
                 "---",
                 "",
@@ -499,11 +570,22 @@ def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
         [
             "## 优先级排序",
             "",
-            ranking or "可优先查看逐条分析中的前几项高优先级机会。",
+            ranking or (
+                "| 排名 | 机会 | 类型 | 核心理由 |\n"
+                "|------|------|------|----------|\n"
+                "| 1 | （请模型输出表格） | 产品机会 | 见逐条分析 |"
+            ),
             "",
             "## 结论",
             "",
-            conclusion or "建议结合原文链接进一步确认重点机会后再做后续动作。",
+            conclusion or (
+                "**最值得跟进的3个机会**：\n\n"
+                "1. 请结合逐条分析中的高分条目自行排序。\n"
+                "2. —\n"
+                "3. —\n\n"
+                "**关键趋势判断**：\n"
+                "- 建议根据本批次信源主题归纳 2～3 条趋势。"
+            ),
         ]
     )
     return "\n".join(lines).rstrip() + "\n"

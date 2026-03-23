@@ -18,6 +18,12 @@ Run the isolated RSS tool as a stable local CLI without touching the main NewsPi
 python isolated_rss_codex_agent/cli.py check
 ```
 
+Optional interactive menu (TTY only):
+
+```bash
+python isolated_rss_codex_agent/cli.py interactive
+```
+
 2. Run a full batch:
 
 ```bash
