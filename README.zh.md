@@ -143,3 +143,7 @@ python cli.py archive --interval 3600
 已在本地跑通：`check`、`fetch`、`analyze`（rules/skill）、`run`、`report`、`archive`、`interactive` 等路径。
 
 更多运维说明见 **`RUNBOOK.md`**。
+
+## 安全
+
+请勿提交 **`.env.local`** 或真实 API 密钥。凭证与自检说明见 **[SECURITY.md](SECURITY.md)**。

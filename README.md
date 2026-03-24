@@ -143,3 +143,7 @@ python cli.py archive --interval 3600
 The CLI flow has been exercised with: `check`, `fetch`, `analyze` (rules/skill), `run`, `report`, `archive`, and `interactive`.
 
 See also **`RUNBOOK.md`** for operational notes.
+
+## Security
+
+Do not commit **`.env.local`** or live API keys. See **[SECURITY.md](SECURITY.md)** for credential handling and a short audit checklist.
