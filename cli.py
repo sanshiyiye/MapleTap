@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -11,6 +12,19 @@ from archive_batches import run_archive
 from errors import ConfigError, RSSAgentError, get_exit_code
 from feed_report import DEFAULT_REPORT_PATH, generate_report
 from fetch_batch import DEFAULT_SCORES_FILE, load_feed_scores, run_fetch, save_feed_scores
+from i18n import (
+    LOCALE_FILE,
+    SUPPORTED_LANGS,
+    get_ui_lang,
+    read_stored_report_lang,
+    read_stored_ui_lang,
+    resolve_report_lang,
+    resolve_ui_lang,
+    set_active_lang,
+    t,
+    write_stored_report_lang,
+    write_stored_ui_lang,
+)
 from interactive_cli import run_interactive_menu
 from run_codex_pipeline import run_pipeline
 from settings import load_settings
@@ -65,7 +79,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 def cmd_analyze(args: argparse.Namespace) -> int:
     input_path = Path(args.input_file)
     if not input_path.exists():
-        raise ConfigError(f"Input file not found: {input_path}")
+        raise ConfigError(t("errors.input_not_found", path=input_path))
+    report_lang = resolve_report_lang(getattr(args, "report_lang", None))
     if args.mode == "skill":
         output_path, item_count = run_skill_analysis(
             input_path=input_path,
@@ -73,6 +88,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             output_file=args.output_file,
             skill_name=args.skill_name,
             log_level=args.log_level,
+            report_lang=report_lang,
         )
     else:
         output_path, item_count = run_analysis(
@@ -80,6 +96,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             output_dir=Path(args.output_dir),
             output_file=args.output_file,
             log_level=args.log_level,
+            report_lang=report_lang,
         )
     print(f"saved={output_path}")
     print(f"saved_json={output_path.with_suffix('.json')}")
@@ -88,6 +105,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    report_lang = resolve_report_lang(getattr(args, "report_lang", None))
     result = run_pipeline(
         topic=args.topic,
         feeds_file=Path(args.feeds_file),
@@ -100,6 +118,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         analysis_mode=args.analysis_mode,
         skill_name=args.skill_name,
         log_level=args.log_level,
+        report_lang=report_lang,
     )
     print(f"input={result['input']}")
     print(f"input_json={Path(str(result['input'])).with_suffix('.json')}")
@@ -154,7 +173,7 @@ def cmd_archive(args: argparse.Namespace) -> int:
         if result.archive_dir is not None:
             print(f"archive_dir={result.archive_dir}")
         else:
-            print("archive_dir=(none; nothing to archive)")
+            print(t("archive.none"))
         print(f"kept_batch_stem={result.kept_batch_stem}")
         print(f"kept_analysis_stem={result.kept_analysis_stem}")
         print(f"kept_skill_stem={result.kept_skill_stem}")
@@ -174,66 +193,93 @@ def cmd_archive(args: argparse.Namespace) -> int:
     if interval <= 0:
         raise ConfigError("--interval must be positive seconds")
 
-    print(f"archive_watch interval_s={interval} (Ctrl+C to stop)")
+    print(t("archive.watch", interval=interval))
     try:
         while True:
             run_once()
             time.sleep(float(interval))
     except KeyboardInterrupt:
-        print("archive_watch stopped")
+        print(t("archive.stopped"))
         return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
+def cmd_lang_show(_args: argparse.Namespace) -> int:
+    print(t("lang.show.ui", value=get_ui_lang()))
+    print(t("lang.show.report", value=read_stored_report_lang()))
+    print(t("lang.show.file", path=str(LOCALE_FILE)))
+    return 0
+
+
+def cmd_lang_set(args: argparse.Namespace) -> int:
+    write_stored_ui_lang(args.code)
+    write_stored_report_lang(args.code)
+    set_active_lang(args.code)
+    print(t("lang.saved", code=args.code))
+    return 0
+
+
+def make_global_parser() -> argparse.ArgumentParser:
+    gp = argparse.ArgumentParser(add_help=False)
+    gp.add_argument(
+        "--lang",
+        choices=sorted(SUPPORTED_LANGS),
+        default=None,
+        metavar="CODE",
+        help="en|zh for this run; default: RSS_AGENT_LANG, else locale.json, else en.",
+    )
+    gp.add_argument(
+        "--save-lang",
+        action="store_true",
+        default=False,
+        help="Persist --lang to locale.json (requires --lang).",
+    )
+    gp.add_argument(
+        "--report-lang",
+        choices=sorted(SUPPORTED_LANGS),
+        default=None,
+        metavar="CODE",
+        help="Analysis output language en|zh for analyze/run; default: RSS_AGENT_REPORT_LANG, else locale.json report_lang, else en.",
+    )
+    gp.add_argument(
+        "--save-report-lang",
+        action="store_true",
+        default=False,
+        help="Persist --report-lang to locale.json (requires --report-lang).",
+    )
+    return gp
+
+
+def build_parser(*, global_parent: argparse.ArgumentParser) -> argparse.ArgumentParser:
     settings = load_settings()
     parser = argparse.ArgumentParser(
-        description="Local RSS agent CLI.",
+        parents=[global_parent],
+        description=t("cli.description"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py check\n"
-            "  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n"
-            "  python cli.py analyze --input-file inputs/2026-03-24-010714-rss-batch.md --mode rules\n"
-            "  python cli.py run --analysis-mode auto\n"
-            "  python cli.py archive --dry-run -v\n"
-            "  python cli.py archive --interval 3600\n"
-            "  python cli.py interactive\n"
-        ),
+        epilog=t("cli.epilog"),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     check_parser = subparsers.add_parser(
         "check",
-        help="Check skill-mode environment readiness.",
+        help=t("cmd.check.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py check\n"
-        ),
+        epilog=t("cmd.check.epilog"),
     )
     check_parser.set_defaults(func=cmd_check)
 
     interactive_parser = subparsers.add_parser(
         "interactive",
-        help="Interactive menu (TTY only); wraps the same commands as the non-interactive CLI.",
+        help=t("cmd.interactive.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py interactive\n"
-        ),
+        epilog=t("cmd.interactive.epilog"),
     )
     interactive_parser.set_defaults(func=cmd_interactive)
 
     fetch_parser = subparsers.add_parser(
         "fetch",
-        help="Fetch RSS feeds into inputs.",
+        help=t("cmd.fetch.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py fetch\n"
-            "  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n"
-            "  python cli.py fetch --output-name 2026-03-24-010714-rss-batch.md\n"
-        ),
+        epilog=t("cmd.fetch.epilog"),
     )
     fetch_parser.add_argument("--feeds-file", default=str(DEFAULT_FEEDS_FILE))
     fetch_parser.add_argument("--output-dir", default=str(DEFAULT_INPUT_DIR))
@@ -249,14 +295,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_parser = subparsers.add_parser(
         "analyze",
-        help="Analyze a normalized input batch.",
+        help=t("cmd.analyze.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py analyze --input-file inputs/2026-03-24-010714-rss-batch.md --mode rules\n"
-            "  python cli.py analyze --input-file inputs/2026-03-24-010714-rss-batch.md --mode skill\n"
-            "  python cli.py analyze --input-file inputs/<batch>.md --output-file outputs/<result>.md\n"
-        ),
+        epilog=t("cmd.analyze.epilog"),
     )
     analyze_parser.add_argument("--input-file", required=True)
     analyze_parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
@@ -268,14 +309,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Run fetch + analyze + feedback + report.",
+        help=t("cmd.run.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py run --analysis-mode auto\n"
-            "  python cli.py run --name-prefix daily-run --analysis-mode rules\n"
-            "  python cli.py run --topic \"Hacker News, AI, coding, startup opportunities\"\n"
-        ),
+        epilog=t("cmd.run.epilog"),
     )
     run_parser.add_argument("--topic", default=str(settings["topic"]))
     run_parser.add_argument("--feeds-file", default=str(DEFAULT_FEEDS_FILE))
@@ -292,13 +328,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     report_parser = subparsers.add_parser(
         "report",
-        help="Generate feed score report.",
+        help=t("cmd.report.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py report\n"
-            "  python cli.py report --report-file outputs/feed_scores_report.md\n"
-        ),
+        epilog=t("cmd.report.epilog"),
     )
     report_parser.add_argument("--scores-file", default=str(DEFAULT_SCORES_FILE))
     report_parser.add_argument("--report-file", default=str(DEFAULT_REPORT_PATH))
@@ -306,35 +338,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     score_parser = subparsers.add_parser(
         "score",
-        help="Inspect or reset feed scores.",
+        help=t("cmd.score.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py score show\n"
-            "  python cli.py score reset\n"
-        ),
+        epilog=t("cmd.score.epilog"),
     )
     score_subparsers = score_parser.add_subparsers(dest="score_command", required=True)
 
-    score_show_parser = score_subparsers.add_parser("show", help="Show current feed scores.")
+    score_show_parser = score_subparsers.add_parser("show", help=t("cmd.score.show.help"))
     score_show_parser.add_argument("--scores-file", default=str(DEFAULT_SCORES_FILE))
     score_show_parser.set_defaults(func=cmd_score_show)
 
-    score_reset_parser = score_subparsers.add_parser("reset", help="Reset feed scores.")
+    score_reset_parser = score_subparsers.add_parser("reset", help=t("cmd.score.reset.help"))
     score_reset_parser.add_argument("--scores-file", default=str(DEFAULT_SCORES_FILE))
     score_reset_parser.set_defaults(func=cmd_score_reset)
 
     archive_parser = subparsers.add_parser(
         "archive",
-        help="Archive older batch inputs and analysis outputs; optional watch loop.",
+        help=t("cmd.archive.help"),
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python cli.py archive\n"
-            "  python cli.py archive --dry-run -v\n"
-            "  python cli.py archive --keep-batch-stem 2026-03-24-010714-rss-batch\n"
-            "  python cli.py archive --interval 3600\n"
-        ),
+        epilog=t("cmd.archive.epilog"),
     )
     archive_parser.add_argument("--inputs-dir", default=str(DEFAULT_INPUT_DIR))
     archive_parser.add_argument("--outputs-dir", default=str(DEFAULT_OUTPUT_DIR))
@@ -342,28 +364,59 @@ def build_parser() -> argparse.ArgumentParser:
     archive_parser.add_argument(
         "--keep-batch-stem",
         default=None,
-        help="Stem to keep (e.g. 2026-03-24-010714-rss-batch). Default: newest batch by mtime.",
+        help=t("cmd.archive.keep_stem"),
     )
     archive_parser.add_argument(
         "--interval",
         type=float,
         default=None,
-        help="If set, repeat archive every N seconds (keeps newest batch each run).",
+        help=t("cmd.archive.interval"),
     )
     archive_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print what would be archived without moving files.",
+        help=t("cmd.archive.dry_run"),
     )
     archive_parser.add_argument("--verbose", "-v", action="store_true")
     archive_parser.set_defaults(func=cmd_archive)
+
+    lang_parser = subparsers.add_parser(
+        "lang",
+        help=t("cmd.lang.help"),
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=t("cmd.lang.epilog"),
+    )
+    lang_subparsers = lang_parser.add_subparsers(dest="lang_action", required=True)
+    lang_show_parser = lang_subparsers.add_parser("show", help=t("cmd.lang.show.help"))
+    lang_show_parser.set_defaults(func=cmd_lang_show)
+    lang_set_parser = lang_subparsers.add_parser("set", help=t("cmd.lang.set.help"))
+    lang_set_parser.add_argument("code", choices=sorted(SUPPORTED_LANGS), help=t("cmd.lang.set.arg"))
+    lang_set_parser.set_defaults(func=cmd_lang_set)
 
     return parser
 
 
 def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
+    global_parser = make_global_parser()
+    pre_args, rest = global_parser.parse_known_args()
+    if pre_args.save_lang and pre_args.lang is None:
+        set_active_lang(read_stored_ui_lang())
+        print("error=--save-lang requires --lang (en|zh)", file=sys.stderr)
+        return 2
+    if pre_args.save_report_lang and pre_args.report_lang is None:
+        set_active_lang(read_stored_ui_lang())
+        print("error=--save-report-lang requires --report-lang (en|zh)", file=sys.stderr)
+        return 2
+    resolve_ui_lang(cli_lang=pre_args.lang, save=pre_args.save_lang)
+    if pre_args.save_report_lang:
+        write_stored_report_lang(pre_args.report_lang)
+    parser = build_parser(global_parent=global_parser)
+    args = parser.parse_args(rest)
+    # Global flags were consumed by parse_known_args above and are not re-parsed from `rest`.
+    args.lang = pre_args.lang
+    args.save_lang = pre_args.save_lang
+    args.report_lang = pre_args.report_lang
+    args.save_report_lang = pre_args.save_report_lang
     try:
         return int(args.func(args))
     except RSSAgentError as exc:

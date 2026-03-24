@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from i18n import resolve_report_lang, t
 from logging_utils import setup_logger
 from settings import load_settings
 from skill_runtime import build_skill_prompt, call_openai_compatible
@@ -73,6 +74,30 @@ LOW_SIGNAL_RULES = [
     },
 ]
 
+# Parallel English copy for low-signal rules (same order as LOW_SIGNAL_RULES).
+LOW_SIGNAL_REASON_EN = [
+    "This reads more like onboarding or promo content; the opportunity signal is weak.",
+    "This is weakly aligned with AI, developer tools, SaaS startups, and related themes.",
+]
+
+HIGH_SIGNAL_RULE_EN: dict[str, dict[str, str]] = {
+    "developer_ai": {
+        "reason": "This item reflects real demand from AI and developer-workflow upgrades with strong productization signals.",
+        "risk": "The signal may still be early, with dependency risk on a single platform or ecosystem.",
+        "action": "Track adoption and integration paths first, then assess adjacent tooling opportunities.",
+    },
+    "startup_signal": {
+        "reason": "This may indicate rising demand, category shifts, or tighter buying windows worth monitoring.",
+        "risk": "Startup headlines can over-narrate; execution detail is often thin—avoid hype-only reads.",
+        "action": "Validate pain, willingness to pay, and concrete use cases before committing effort.",
+    },
+    "infra_signal": {
+        "reason": "This points to stability, governance, or ops needs that tend to recur over time.",
+        "risk": "Generic solutions may be crowded; differentiation needs a sharp wedge.",
+        "action": "Look for vertical workflow wedges rather than competing as a broad platform.",
+    },
+}
+
 SOURCE_WEIGHTS = {
     "hacker news": 10,
     "the github blog": 14,
@@ -114,10 +139,11 @@ def parse_items(markdown: str) -> list[NewsItem]:
     return items
 
 
-def score_item(item: NewsItem) -> tuple[int, dict[str, str] | None, str]:
+def score_item(item: NewsItem) -> tuple[int, dict[str, str] | None, dict[str, str] | None]:
     haystack = f"{item.title} {item.summary}".lower()
     best_rule: dict[str, str] | None = None
     best_score = 40
+    matched_low: dict[str, str] | None = None
 
     for rule in HIGH_SIGNAL_RULES:
         if any(keyword in haystack for keyword in rule["keywords"]):
@@ -125,21 +151,44 @@ def score_item(item: NewsItem) -> tuple[int, dict[str, str] | None, str]:
                 best_rule = rule
                 best_score = int(rule["score"])
 
-    low_signal_reason = ""
     for rule in LOW_SIGNAL_RULES:
         if any(keyword in haystack for keyword in rule["keywords"]):
             if int(rule["score"]) < best_score:
                 best_rule = None
                 best_score = int(rule["score"])
-                low_signal_reason = str(rule["reason"])
-    return best_score, best_rule, low_signal_reason
+                matched_low = rule
+    return best_score, best_rule, matched_low
 
 
-def analyze_item(item: NewsItem) -> dict[str, str | int]:
-    score, rule, low_signal_reason = score_item(item)
+def _low_reason_localized(low_rule: dict[str, str] | None, report_lang: str) -> str:
+    if not low_rule:
+        return ""
+    try:
+        idx = LOW_SIGNAL_RULES.index(low_rule)
+    except ValueError:
+        return str(low_rule["reason"])
+    if report_lang == "en" and 0 <= idx < len(LOW_SIGNAL_REASON_EN):
+        return LOW_SIGNAL_REASON_EN[idx]
+    return str(low_rule["reason"])
+
+
+def _high_fields_localized(rule: dict[str, str], report_lang: str) -> tuple[str, str, str]:
+    if report_lang != "en":
+        return str(rule["reason"]), str(rule["risk"]), str(rule["action"])
+    name = str(rule.get("name", ""))
+    en = HIGH_SIGNAL_RULE_EN.get(name)
+    if en:
+        return en["reason"], en["risk"], en["action"]
+    return str(rule["reason"]), str(rule["risk"]), str(rule["action"])
+
+
+def analyze_item(item: NewsItem, report_lang: str = "zh") -> dict[str, str | int]:
+    lang = report_lang if report_lang in ("en", "zh") else "zh"
+    score, rule, low_rule = score_item(item)
     adjusted_score = score + int(SOURCE_WEIGHTS.get(item.source.lower(), 0))
 
     if rule is None:
+        low_reason = _low_reason_localized(low_rule, lang)
         return {
             "title": item.title,
             "source": item.source,
@@ -148,12 +197,13 @@ def analyze_item(item: NewsItem) -> dict[str, str | int]:
             "summary": item.summary,
             "opportunity_type": "watch",
             "judgment": "low" if adjusted_score < 40 else "medium",
-            "reason": low_signal_reason or "当前信号不够具体，暂不足以形成高置信机会判断。",
-            "risk": "低信号条目如果权重过高，会分散注意力并影响整体机会排序。",
-            "action": "先纳入观察清单，等待后续更多证据再决定是否提升优先级。",
+            "reason": low_reason or t("report.no_rule.reason", lang=lang),
+            "risk": t("report.no_rule.risk", lang=lang),
+            "action": t("report.no_rule.action", lang=lang),
             "score": adjusted_score,
         }
 
+    reason, risk, action = _high_fields_localized(rule, lang)
     return {
         "title": item.title,
         "source": item.source,
@@ -162,9 +212,9 @@ def analyze_item(item: NewsItem) -> dict[str, str | int]:
         "summary": item.summary,
         "opportunity_type": str(rule["opportunity_type"]),
         "judgment": str(rule["judgment"]),
-        "reason": str(rule["reason"]),
-        "risk": str(rule["risk"]),
-        "action": str(rule["action"]),
+        "reason": reason,
+        "risk": risk,
+        "action": action,
         "score": adjusted_score,
     }
 
@@ -222,74 +272,73 @@ def render_output(
     analyses: list[dict[str, str | int]],
     _source_name: str,
     _mode: str,
+    report_lang: str = "zh",
 ) -> str:
+    lang = report_lang if report_lang in ("en", "zh") else "zh"
+    colon = "：" if lang == "zh" else ": "
+
+    def label_line(field_key: str, value: str) -> str:
+        return f"- **{t(field_key, lang=lang)}**{colon}{value}"
+
+    def label_open(field_key: str) -> str:
+        return f"- **{t(field_key, lang=lang)}**{colon}"
+
     sorted_items = sorted(analyses, key=lambda item: int(item["score"]), reverse=True)
     top_items = sorted_items[:5]
 
-    def cn_judgment(score: int) -> str:
+    def judgment_stars(score: int) -> str:
         if score >= 90:
-            return "⭐⭐⭐⭐⭐ 极高机会"
+            return t("report.judgment.j90", lang=lang)
         if score >= 80:
-            return "⭐⭐⭐⭐ 高机会"
+            return t("report.judgment.j80", lang=lang)
         if score >= 70:
-            return "⭐⭐⭐ 中等机会"
+            return t("report.judgment.j70", lang=lang)
         if score >= 60:
-            return "⭐⭐ 低机会"
-        return "⭐ 低机会"
+            return t("report.judgment.j60", lang=lang)
+        return t("report.judgment.j0", lang=lang)
 
-    def cn_type(raw_type: str) -> str:
-        mapping = {
-            "developer_tools": "产品机会",
-            "startup_signal": "产品机会、投资观察",
-            "infrastructure": "产品机会",
-            "watch": "观察机会",
-        }
-        return mapping.get(raw_type, "产品机会")
+    def type_label(raw_type: str) -> str:
+        key = f"report.type.{raw_type}"
+        mapped = t(key, lang=lang)
+        return mapped if mapped != key else t("report.type.developer_tools", lang=lang)
 
     def reason_points(item: dict[str, str | int]) -> list[str]:
         title = str(item["title"]).lower()
         source = str(item["source"]).lower()
         points = [str(item["reason"])]
         if any(k in title for k in ["ai", "agent", "llm", "copilot"]):
-            points.append("AI 能力正从单点功能走向流程化协作，具备持续演进空间。")
+            points.append(t("report.extra.reason_ai", lang=lang))
         if any(k in title for k in ["startup", "raises", "funding", "series"]):
-            points.append("资本与市场关注提升，说明该方向可能进入可验证商业化阶段。")
+            points.append(t("report.extra.reason_startup", lang=lang))
         if any(k in title for k in ["security", "outage", "incident", "supply chain"]):
-            points.append("稳定性与安全问题属于高频刚需，付费与复购潜力通常更高。")
+            points.append(t("report.extra.reason_security", lang=lang))
         if source in {"the github blog", "github blog", "hacker news", "techcrunch"}:
-            points.append("信源在开发者与科技社区影响力较高，可作为趋势跟踪的先行指标。")
+            points.append(t("report.extra.reason_source", lang=lang))
         return points[:3]
 
     def risk_points(item: dict[str, str | int]) -> list[str]:
         title = str(item["title"]).lower()
         points = [str(item["risk"])]
         if any(k in title for k in ["github", "copilot", "openai"]):
-            points.append("若过度依赖头部平台生态，后续可能面临接口策略或定价变化风险。")
+            points.append(t("report.extra.risk_platform", lang=lang))
         if any(k in title for k in ["startup", "raises", "funding", "series"]):
-            points.append("融资与曝光不等于长期留存，需关注真实使用频率和转化质量。")
+            points.append(t("report.extra.risk_startup", lang=lang))
         return points[:3]
-
-    def action_text(item: dict[str, str | int]) -> str:
-        # 与参考版式一致：建议动作为单句，不追加固定后缀
-        return str(item["action"])
 
     sources = sorted({str(x["source"]) for x in sorted_items})
     n_sources = len(sources)
     n_items = len(sorted_items)
-    overview_line = (
-        f"本次采集涵盖 {n_sources} 个信源，共 {n_items} 条内容。"
-        f"筛选出与 AI、开发工具、SaaS、开源、创业/就业等相关方向，对当前批次条目逐条进行机会分析。"
-    )
+    overview_line = t("report.overview", lang=lang, sources=n_sources, items=n_items)
 
     top3 = sorted_items[:3]
     lines = [
-        "# RSS 科技机会分析",
+        f"# {t('report.doc_title', lang=lang)}",
         "",
-        "## 总览",
+        f"## {t('report.section.overview', lang=lang)}",
         "",
         overview_line,
         "",
-        "## 逐条分析",
+        f"## {t('report.section.items', lang=lang)}",
         "",
     ]
 
@@ -300,31 +349,37 @@ def render_output(
         lines.extend(
             [
                 f"### {index}. {analysis['title']}",
-                f"- **摘要**：{analysis['summary']}",
-                f"- **机会类型**：{cn_type(str(analysis['opportunity_type']))}",
-                f"- **机会判断**：{cn_judgment(score)}",
-                "- **机会理由**：",
+                label_line("report.field.summary", str(analysis["summary"])),
+                label_line("report.field.opportunity_type", type_label(str(analysis["opportunity_type"]))),
+                label_line("report.field.judgment", judgment_stars(score)),
+                label_open("report.field.reasons"),
                 *[f"  - {point}" for point in reasons],
-                "- **风险**：",
+                label_open("report.field.risks"),
                 *[f"  - {point}" for point in risks],
-                f"- **建议动作**：{action_text(analysis)}",
+                label_line("report.field.action", str(analysis["action"])),
+                label_line("report.field.link", str(analysis["link"])),
                 "",
                 "---",
                 "",
             ]
         )
 
+    th = t("report.table.rank", lang=lang)
+    to = t("report.table.opportunity", lang=lang)
+    tt = t("report.table.type", lang=lang)
+    tr = t("report.table.core_reason", lang=lang)
+    sep = "|------|------|------|----------|"
     lines.extend(
         [
-            "## 优先级排序",
+            f"## {t('report.section.ranking', lang=lang)}",
             "",
-            "| 排名 | 机会 | 类型 | 核心理由 |",
-            "|------|------|------|----------|",
+            f"| {th} | {to} | {tt} | {tr} |",
+            sep,
         ]
     )
     for index, item in enumerate(top_items, start=1):
         lines.append(
-            f"| {index} | {item['title']} | {cn_type(str(item['opportunity_type']))} | {item['reason']} |"
+            f"| {index} | {item['title']} | {type_label(str(item['opportunity_type']))} | {item['reason']} |"
         )
 
     lines.extend(
@@ -332,9 +387,9 @@ def render_output(
             "",
             "---",
             "",
-            "## 结论",
+            f"## {t('report.section.conclusion', lang=lang)}",
             "",
-            "**最值得跟进的3个机会**：",
+            t("report.conclusion.top3", lang=lang),
             "",
         ]
     )
@@ -344,9 +399,9 @@ def render_output(
     lines.extend(
         [
             "",
-            "**关键趋势判断**：",
-            "- AI 与开发工具、开源与安全相关信号仍是当前批次主线，可优先跟进高分条目。",
-            "- 评分用于信息分诊，正式决策前请结合信源与业务场景自行复核。",
+            t("report.trend.title", lang=lang),
+            t("report.trend.1", lang=lang),
+            t("report.trend.2", lang=lang),
             "",
         ]
     )
@@ -427,6 +482,7 @@ _CARD_HEADER_VARIANTS: list[tuple[str, str]] = [
     ("Action", "建议动作"),
     ("原文链接", "原文链接"),
     ("Link", "原文链接"),
+    ("Source link", "原文链接"),
 ]
 
 
@@ -467,6 +523,7 @@ def _is_misnested_field_bullet(inner: str) -> bool:
         "原文链接：",
         "原文链接:",
         "link:",
+        "source link:",
         "risk:",
         "action:",
     )
@@ -508,23 +565,82 @@ def extract_block_values(body: str, labels: list[str]) -> list[str]:
     return values
 
 
-def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
+def _skill_extract_section(
+    raw_output: str,
+    *,
+    zh_title: str,
+    zh_next: list[str],
+    en_title: str,
+    en_next: list[str],
+    prefer_zh: bool,
+) -> str:
+    tail = ["Original Links"]
+    if prefer_zh:
+        first = extract_section(raw_output, zh_title, zh_next + tail)
+        if first.strip():
+            return first
+        return extract_section(raw_output, en_title, en_next + tail)
+    first = extract_section(raw_output, en_title, en_next + tail)
+    if first.strip():
+        return first
+    return extract_section(raw_output, zh_title, zh_next + tail)
+
+
+def render_skill_cards_exact(items: list[NewsItem], raw_output: str, report_lang: str = "zh") -> str:
+    lang = report_lang if report_lang in ("en", "zh") else "zh"
+    colon = "：" if lang == "zh" else ": "
+    prefer_zh = lang == "zh"
+
+    def label_line(field_key: str, value: str) -> str:
+        return f"- **{t(field_key, lang=lang)}**{colon}{value}"
+
+    def label_open(field_key: str) -> str:
+        return f"- **{t(field_key, lang=lang)}**{colon}"
+
     raw_output = _strip_tail_original_links(raw_output)
-    overview = extract_section(raw_output, "总览", ["逐条分析", "优先级排序", "结论", "Original Links"])
+    overview = _skill_extract_section(
+        raw_output,
+        zh_title="总览",
+        zh_next=["逐条分析", "优先级排序", "结论"],
+        en_title="Overview",
+        en_next=["Item analysis", "Priority ranking", "Conclusion"],
+        prefer_zh=prefer_zh,
+    )
     overview = _normalize_skill_overview(overview)
-    cards_block = extract_section(raw_output, "逐条分析", ["优先级排序", "结论", "Original Links"])
-    ranking = extract_section(raw_output, "优先级排序", ["结论", "Original Links"])
-    conclusion = extract_section(raw_output, "结论", ["Original Links"])
+    cards_block = _skill_extract_section(
+        raw_output,
+        zh_title="逐条分析",
+        zh_next=["优先级排序", "结论"],
+        en_title="Item analysis",
+        en_next=["Priority ranking", "Conclusion"],
+        prefer_zh=prefer_zh,
+    )
+    ranking = _skill_extract_section(
+        raw_output,
+        zh_title="优先级排序",
+        zh_next=["结论"],
+        en_title="Priority ranking",
+        en_next=["Conclusion"],
+        prefer_zh=prefer_zh,
+    )
+    conclusion = _skill_extract_section(
+        raw_output,
+        zh_title="结论",
+        zh_next=[],
+        en_title="Conclusion",
+        en_next=[],
+        prefer_zh=prefer_zh,
+    )
 
     item_map = {item.title: item for item in items}
     lines = [
-        "# RSS 科技机会分析",
+        f"# {t('report.doc_title', lang=lang)}",
         "",
-        "## 总览",
+        f"## {t('report.section.overview', lang=lang)}",
         "",
-        overview or "本次批次已完成机会筛选，以下为按优先级整理的重点内容。",
+        overview or t("report.skill.fallback_overview", lang=lang),
         "",
-        "## 逐条分析",
+        f"## {t('report.section.items', lang=lang)}",
         "",
     ]
 
@@ -534,58 +650,57 @@ def render_skill_cards_exact(items: list[NewsItem], raw_output: str) -> str:
         opportunity_type = extract_single_value(body, ["机会类型", "Opportunity Type"])
         judgment = extract_single_value(body, ["机会判断", "Judgment"])
         action = extract_single_value(body, ["建议动作", "Action"])
+        link = extract_single_value(body, ["原文链接", "Link", "Source link"]) or (item.link if item else "")
         reasons = extract_block_values(body, ["机会理由", "Reason"])
         risks = extract_block_values(body, ["风险", "Risk"])
 
         lines.extend(
             [
                 f"### {index}. {title}",
-                f"- **摘要**：{summary}",
-                f"- **机会类型**：{opportunity_type}",
-                f"- **机会判断**：{judgment}",
-                "- **机会理由**：",
+                label_line("report.field.summary", summary),
+                label_line("report.field.opportunity_type", opportunity_type),
+                label_line("report.field.judgment", judgment),
+                label_open("report.field.reasons"),
             ]
         )
         if reasons:
             for reason in reasons:
                 lines.append(f"  - {reason}")
         else:
-            lines.append("  - 信息不足，需结合原文进一步判断")
-        lines.append("- **风险**：")
+            lines.append(f"  - {t('report.insufficient', lang=lang)}")
+        lines.append(label_open("report.field.risks"))
         if risks:
             for risk in risks:
                 lines.append(f"  - {risk}")
         else:
-            lines.append("  - 信息不足，需结合原文进一步判断")
+            lines.append(f"  - {t('report.insufficient', lang=lang)}")
         lines.extend(
             [
-                f"- **建议动作**：{action}",
+                label_line("report.field.action", action),
+                label_line("report.field.link", link),
                 "",
                 "---",
                 "",
             ]
         )
 
+    th = t("report.table.rank", lang=lang)
+    to = t("report.table.opportunity", lang=lang)
+    tt = t("report.table.type", lang=lang)
+    tr = t("report.table.core_reason", lang=lang)
+    rank_fallback = (
+        f"| {th} | {to} | {tt} | {tr} |\n|------|------|------|----------|\n"
+        + t("report.skill.rank_placeholder_row", lang=lang)
+    )
     lines.extend(
         [
-            "## 优先级排序",
+            f"## {t('report.section.ranking', lang=lang)}",
             "",
-            ranking or (
-                "| 排名 | 机会 | 类型 | 核心理由 |\n"
-                "|------|------|------|----------|\n"
-                "| 1 | （请模型输出表格） | 产品机会 | 见逐条分析 |"
-            ),
+            ranking or rank_fallback,
             "",
-            "## 结论",
+            f"## {t('report.section.conclusion', lang=lang)}",
             "",
-            conclusion or (
-                "**最值得跟进的3个机会**：\n\n"
-                "1. 请结合逐条分析中的高分条目自行排序。\n"
-                "2. —\n"
-                "3. —\n\n"
-                "**关键趋势判断**：\n"
-                "- 建议根据本批次信源主题归纳 2～3 条趋势。"
-            ),
+            conclusion or t("report.skill.conclusion_fallback", lang=lang),
         ]
     )
     return "\n".join(lines).rstrip() + "\n"
@@ -647,14 +762,16 @@ def run_skill_analysis(
     output_file: str | None = None,
     skill_name: str = "tech-opportunity-skill",
     log_level: str | None = None,
+    report_lang: str = "zh",
 ) -> tuple[Path, int]:
     logger = setup_logger("rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO")))
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown = input_path.read_text(encoding="utf-8")
     items = parse_items(markdown)
-    system_prompt, user_prompt = build_skill_prompt(skill_name, markdown)
+    rl = report_lang if report_lang in ("en", "zh") else "zh"
+    system_prompt, user_prompt = build_skill_prompt(skill_name, markdown, report_lang=rl)
     raw_output = call_openai_compatible(system_prompt, user_prompt)
-    raw_output = render_skill_cards_exact(items, raw_output)
+    raw_output = render_skill_cards_exact(items, raw_output, report_lang=rl)
     raw_output = ensure_output_appendices(raw_output, items)
 
     output_name = output_file or f"{input_path.stem}-skill-analysis.md"
@@ -676,16 +793,18 @@ def run_analysis(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     output_file: str | None = None,
     log_level: str | None = None,
+    report_lang: str = "zh",
 ) -> tuple[Path, int]:
     logger = setup_logger("rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO")))
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown = input_path.read_text(encoding="utf-8")
     items = parse_items(markdown)
-    analyses = [analyze_item(item) for item in items]
+    rl = report_lang if report_lang in ("en", "zh") else "zh"
+    analyses = [analyze_item(item, report_lang=rl) for item in items]
 
     output_name = output_file or f"{input_path.stem}-analysis.md"
     output_path = output_dir / output_name
-    raw_output = render_output(analyses, input_path.name, "rules")
+    raw_output = render_output(analyses, input_path.name, "rules", report_lang=rl)
     raw_output = ensure_output_appendices(raw_output, items)
     write_analysis_outputs(
         input_path=input_path,
@@ -707,7 +826,14 @@ def main() -> int:
     parser.add_argument("--mode", choices=["rules", "skill"], default=str(settings["analysis_mode"]).replace("auto", "rules"))
     parser.add_argument("--skill-name", default="tech-opportunity-skill")
     parser.add_argument("--log-level", default=str(settings["log_level"]))
+    parser.add_argument(
+        "--report-lang",
+        choices=["en", "zh"],
+        default=None,
+        help="Output language for Markdown (en|zh). Default: RSS_AGENT_REPORT_LANG, locale.json, or en.",
+    )
     args = parser.parse_args()
+    rl = resolve_report_lang(args.report_lang)
 
     if args.mode == "skill":
         output_path, item_count = run_skill_analysis(
@@ -716,6 +842,7 @@ def main() -> int:
             output_file=args.output_file,
             skill_name=args.skill_name,
             log_level=args.log_level,
+            report_lang=rl,
         )
     else:
         output_path, item_count = run_analysis(
@@ -723,6 +850,7 @@ def main() -> int:
             output_dir=DEFAULT_OUTPUT_DIR,
             output_file=args.output_file,
             log_level=args.log_level,
+            report_lang=rl,
         )
 
     print(f"saved={output_path}")

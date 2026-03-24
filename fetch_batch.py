@@ -130,9 +130,16 @@ def update_feed_record(
 
 def fetch_feed(url: str, timeout: int = 20, retries: int = 2, retry_delay: float = 1.5) -> bytes:
     last_error: Exception | None = None
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+    }
     for attempt in range(retries + 1):
         try:
-            request = Request(url, headers={"User-Agent": "NewsPilot-IsolatedRSSAgent/0.1"})
+            request = Request(url, headers=headers)
             with urlopen(request, timeout=timeout) as response:
                 return response.read()
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
@@ -174,11 +181,54 @@ def find_child_text(element: ET.Element, *names: str) -> str:
     wanted = set(names)
     for child in list(element):
         if strip_tag(child.tag) in wanted:
-            return normalize_text(child.text)
+            raw = "".join(child.itertext()).strip() or (child.text or "").strip()
+            return normalize_text(raw)
     return ""
 
 
-def parse_feed(content: bytes, feed_url: str, limit: int) -> tuple[str, list[FeedItem]]:
+def _rss_regex_tag_inner(block: str, tag: str) -> str:
+    m = re.search(rf"<{tag}\b[^>]*>([\s\S]*?)</{tag}\s*>", block, re.I)
+    if not m:
+        return ""
+    inner = m.group(1).strip()
+    if inner.startswith("<![CDATA[") and inner.endswith("]]>"):
+        inner = inner[9:-3].strip()
+    return inner.strip()
+
+
+def _parse_feed_rss_regex(content: bytes, feed_url: str, limit: int) -> tuple[str, list[FeedItem]]:
+    """Last-resort RSS 2.0 parse when ElementTree rejects the XML (e.g. mismatched tags)."""
+    text = content.decode("utf-8", errors="replace")
+    if "<rss" not in text[:2000].lower():
+        return feed_url, []
+
+    src_m = re.search(r"<channel\b[^>]*>[\s\S]*?<title\b[^>]*>([\s\S]*?)</title\s*>", text, re.I)
+    source = normalize_text(src_m.group(1)) if src_m else feed_url
+
+    items: list[FeedItem] = []
+    for m in re.finditer(r"<item\b[\s\S]*?</item\s*>", text, re.I):
+        block = m.group(0)
+        title_raw = _rss_regex_tag_inner(block, "title") or "(untitled)"
+        link_raw = _rss_regex_tag_inner(block, "link")
+        date_raw = _rss_regex_tag_inner(block, "pubDate") or _rss_regex_tag_inner(block, "published") or "unknown"
+        desc_raw = _rss_regex_tag_inner(block, "description") or _rss_regex_tag_inner(block, "summary")
+        items.append(
+            FeedItem(
+                title=normalize_text(title_raw) or "(untitled)",
+                source=source,
+                source_feed_url=feed_url,
+                date=normalize_text(date_raw) or "unknown",
+                link=normalize_text(link_raw),
+                item_type="RSS entry",
+                summary=normalize_text(desc_raw) or normalize_text(title_raw),
+            )
+        )
+        if len(items) >= limit:
+            break
+    return source, items
+
+
+def _parse_feed_elementtree(content: bytes, feed_url: str, limit: int) -> tuple[str, list[FeedItem]]:
     root = ET.fromstring(content)
     root_name = strip_tag(root.tag).lower()
 
@@ -234,6 +284,18 @@ def parse_feed(content: bytes, feed_url: str, limit: int) -> tuple[str, list[Fee
     return feed_url, []
 
 
+def parse_feed(content: bytes, feed_url: str, limit: int) -> tuple[str, list[FeedItem]]:
+    try:
+        return _parse_feed_elementtree(content, feed_url, limit)
+    except ET.ParseError:
+        return _parse_feed_rss_regex(content, feed_url, limit)
+
+
+def _response_looks_like_html(content: bytes) -> bool:
+    head = content.lstrip()[:800].lower()
+    return head.startswith(b"<html") or head.startswith(b"<!doctype html")
+
+
 def extract_items(
     feed_url: str,
     limit: int,
@@ -244,9 +306,11 @@ def extract_items(
     try:
         content = fetch_feed(feed_url, timeout=timeout, retries=retries, retry_delay=retry_delay)
         _source, items = parse_feed(content, feed_url, limit)
-    except (HTTPError, URLError, TimeoutError, OSError, ET.ParseError) as exc:
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
         return [], f"{feed_url} -> {type(exc).__name__}: {exc}"
     if not items:
+        if _response_looks_like_html(content):
+            return [], f"{feed_url} -> HTML response (blocked/captcha/wrong URL), not RSS"
         return [], f"{feed_url} -> no parsable entries found"
 
     for item in items:

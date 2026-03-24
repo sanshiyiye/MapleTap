@@ -24,6 +24,16 @@ Optional interactive menu (TTY only):
 python isolated_rss_codex_agent/cli.py interactive
 ```
 
+UI language (default English; persist to `locale.json`, gitignored):
+
+```bash
+python isolated_rss_codex_agent/cli.py --lang zh --save-lang
+python isolated_rss_codex_agent/cli.py lang show
+python isolated_rss_codex_agent/cli.py lang set zh
+```
+
+Put global flags before the subcommand, e.g. `python .../cli.py --lang zh run --analysis-mode auto`.
+
 2. Run a full batch:
 
 ```bash

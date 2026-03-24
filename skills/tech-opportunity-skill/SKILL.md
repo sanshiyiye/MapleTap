@@ -1,6 +1,6 @@
 ---
 name: tech-opportunity-skill
-description: Generate opportunity analysis for RSS batches in Chinese, matching the reference Markdown layout (no per-item links appendix).
+description: Generate opportunity analysis for RSS batches in Chinese, matching the reference Markdown layout (per-item 原文链接 after 建议动作; no end-of-doc Original Links appendix).
 ---
 
 # Tech Opportunity Skill
@@ -19,7 +19,7 @@ Match the **reference report layout** (same section order and Markdown shapes):
   - `- **机会理由**：` then **only** real points as `  - ` bullets (one line each)
   - `- **风险**：` then either **one** line after the colon **or** `  - ` bullets (reference uses both; be consistent within one item)
   - `- **建议动作**：` **one** line only
-  - **Do not** output `- **原文链接**` per item (links stay in the input batch only).
+  - `- **原文链接**：` **one** line only — paste the URL from the input item's `- Link:` line for that entry.
 - `## 优先级排序` must be a **Markdown table** with **exact** header row:
 
 ```text
@@ -33,7 +33,7 @@ Use numeric ranks `1`, `2`, `3`… in the first column — **not** `P0` / `P1`. 
   - A line `**最值得跟进的3个机会**：` then a blank line, then **numbered** items `1.` … `3.` (short lines like the reference).
   - A line `**关键趋势判断**：` then **2–4** `- ` bullet lines.
 
-- **Do not** output `## Original Links` or any link appendix at the end.
+- **Do not** output `## Original Links` or any all-items link appendix at the end (per-item 原文链接 is required).
 
 ## Scope
 

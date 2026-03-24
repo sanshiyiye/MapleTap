@@ -34,20 +34,50 @@ def load_skill_text(skill_name: str) -> str:
     return content.strip()
 
 
-def build_skill_prompt(skill_name: str, input_markdown: str) -> tuple[str, str]:
+def build_skill_prompt(skill_name: str, input_markdown: str, report_lang: str = "zh") -> tuple[str, str]:
     skill_text = load_skill_text(skill_name)
-    system_prompt = (
-        "You are a local RSS opportunity analysis assistant. "
-        "Follow the provided skill exactly. "
-        "Return concise, structured Markdown in Chinese."
-    )
-    user_prompt = (
-        f"# Active Skill\n\n{skill_text}\n\n"
-        f"# Input Batch\n\n{input_markdown}\n\n"
-        "# Task\n\n"
-        "Please follow the skill precisely, analyze the opportunities in the batch, "
-        "and return structured Markdown in Chinese."
-    )
+    if report_lang == "en":
+        system_prompt = (
+            "You are a local RSS opportunity analysis assistant. "
+            "Follow the provided skill exactly. "
+            "Return concise, structured Markdown entirely in English."
+        )
+        user_prompt = (
+            f"# Active Skill\n\n{skill_text}\n\n"
+            f"# Input Batch\n\n{input_markdown}\n\n"
+            "# Task\n\n"
+            "Follow the skill precisely, analyze the opportunities in the batch, "
+            "and return structured Markdown entirely in English.\n\n"
+            "Use these top-level section titles (##) in English exactly:\n"
+            "## Overview\n"
+            "## Item analysis\n"
+            "## Priority ranking\n"
+            "## Conclusion\n\n"
+            "Under each item in Item analysis, use bullet fields in English with these labels:\n"
+            "- **Summary**: …\n"
+            "- **Opportunity Type**: …\n"
+            "- **Judgment**: …\n"
+            "- **Reason**: (then nested bullets)\n"
+            "- **Risk**: (then nested bullets)\n"
+            "- **Action**: …\n"
+            "- **Source link**: the article URL copied from the input item's `- Link:` line.\n"
+            "Do not add a trailing `## Original Links` section at the end of the document."
+        )
+    else:
+        system_prompt = (
+            "You are a local RSS opportunity analysis assistant. "
+            "Follow the provided skill exactly. "
+            "Return concise, structured Markdown in Chinese."
+        )
+        user_prompt = (
+            f"# Active Skill\n\n{skill_text}\n\n"
+            f"# Input Batch\n\n{input_markdown}\n\n"
+            "# Task\n\n"
+            "Please follow the skill precisely, analyze the opportunities in the batch, "
+            "and return structured Markdown in Chinese.\n\n"
+            "After `- **建议动作**：` on each item, include `- **原文链接**：` with the URL from that item's "
+            "`- Link:` line in the input batch."
+        )
     return system_prompt, user_prompt
 
 

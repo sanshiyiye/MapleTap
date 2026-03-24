@@ -1,130 +1,145 @@
 # Isolated RSS Codex Agent
 
-This folder is a physically isolated local toolchain for:
+**Language / 语言:** English (this file) · [中文 README](README.zh.md)
 
-- fetching RSS feeds
-- normalizing them into standard batch files
-- analyzing them with rules or skill-driven LLM calls
-- feeding the result back into feed scoring
-- generating a readable score report
+This folder is a self-contained local toolchain for:
 
-It does not modify the main `src/` project path.
+- Fetching RSS feeds and normalizing them into batch files  
+- Analyzing batches with **rules** or **skill-driven** LLM calls  
+- Writing analysis feedback into feed scoring  
+- Generating a readable score report  
 
-## Current entrypoint
+It does not modify the parent project’s `src/` tree.
 
-Use the unified CLI:
+## Entrypoint
+
+Unified CLI (run from this directory, or prefix paths from the repo root):
+
+```bash
+python cli.py --help
+```
+
+From the monorepo root:
 
 ```bash
 python isolated_rss_codex_agent/cli.py --help
 ```
 
-Available commands:
+### Commands
 
-- `check`
-- `interactive`（TTY 数字菜单，内部调用与其它子命令相同逻辑）
-- `fetch`
-- `analyze`
-- `run`
-- `report`
-- `score show`
-- `score reset`
-- `archive`（可选 `--interval` 持续按间隔归档旧批次）
+| Command | Purpose |
+|--------|---------|
+| `check` | Verify skill mode env (`OPENAI_*`) |
+| `interactive` | TTY menu (same actions as CLI subcommands) |
+| `fetch` | Pull RSS → `inputs/` |
+| `analyze` | Analyze one batch (`rules` / `skill`) |
+| `run` | Fetch + analyze + feedback + report |
+| `report` | Generate `feed_scores_report.md` |
+| `score show` / `score reset` | Inspect or clear feed scores |
+| `archive` | Archive old inputs/outputs (`--interval` optional) |
+| `lang show` / `lang set en\|zh` | Persist UI + report language defaults in `locale.json` |
+
+### Global flags (must appear **before** the subcommand)
+
+| Flag | Purpose |
+|------|---------|
+| `--lang en\|zh` | UI strings for this process |
+| `--save-lang` | Save `--lang` to `locale.json` (requires `--lang`) |
+| `--report-lang en\|zh` | Language of analysis Markdown |
+| `--save-report-lang` | Save `--report-lang` to `locale.json` (requires `--report-lang`) |
+
+**Precedence**
+
+- **UI**: `--lang` → `RSS_AGENT_LANG` → `locale.json` `ui_lang` → `en`  
+- **Report**: `--report-lang` → `RSS_AGENT_REPORT_LANG` → `locale.json` `report_lang` → `en`  
+
+Example:
+
+```bash
+python cli.py --lang zh --report-lang zh run --analysis-mode auto
+```
+
+Strings live in `locales/en.json` and `locales/zh.json`; logic in `i18n.py`. `locale.json` is gitignored.
 
 ## Important files
 
-- `cli.py`: unified local CLI
-- `fetch_batch.py`: RSS fetch + filter + dedupe + score update
-- `analyze_batch.py`: rules/skill analysis + JSON sidecar output
-- `run_codex_pipeline.py`: end-to-end orchestration
-- `feed_feedback.py`: analysis feedback into feed scores
-- `feed_report.py`: readable score report generator
-- `feed_scores.json`: persistent score state
-- `settings.json`: runtime defaults
-- `.env.local`: model credentials and endpoint
-- `feeds.txt`: active RSS feed list
-- `schemas/README.md`: JSON schema notes
-- `policies/`: fetch / analysis / scoring rule modules
+| Path | Role |
+|------|------|
+| `cli.py` | Main CLI |
+| `i18n.py`, `locales/*.json` | UI + report copy |
+| `fetch_batch.py` | Fetch, filter, dedupe, score updates |
+| `analyze_batch.py` | Rules/skill analysis + JSON sidecar |
+| `run_codex_pipeline.py` | End-to-end pipeline |
+| `feed_feedback.py` | Apply analysis outcome to scores |
+| `feed_report.py` | Score report Markdown |
+| `feed_scores.json` | Persistent scores (gitignored in some setups) |
+| `settings.json` | Defaults |
+| `.env.local` | API key / base URL / model |
+| `feeds.txt` | RSS URL list |
+| `schemas/README.md` | JSON schema notes |
+| `policies/` | Fetch / analysis / scoring rules |
 
 ## Output model
 
-Each batch now produces both:
+Each batch produces:
 
-- Markdown for human review（版式与参考报告一致：逐条分析**不含**「原文链接」行，文末**不**附 `Original Links`；链接见对应 `inputs/*-rss-batch.json`）
-- JSON for programmatic reuse
+- **Markdown** — human-readable analysis; each item includes **Source link** / **原文链接** after Action; no trailing `## Original Links` appendix  
+- **JSON** — same run, machine-friendly  
 
-Examples:
+Typical paths:
 
-- `inputs/<name>.md`
-- `inputs/<name>.json`
-- `outputs/<name>.md`
-- `outputs/<name>.json`
+- `inputs/<name>.md`, `inputs/<name>.json`  
+- `outputs/<name>.md`, `outputs/<name>.json`  
 
 ## Typical usage
 
 Check skill mode:
 
 ```bash
-python isolated_rss_codex_agent/cli.py check
+python cli.py check
 ```
 
-交互菜单（需在真实终端中运行）：
+Interactive menu (real terminal required):
 
 ```bash
-python isolated_rss_codex_agent/cli.py interactive
+python cli.py interactive
 ```
 
 Fetch only:
 
 ```bash
-python isolated_rss_codex_agent/cli.py fetch --topic "AI, coding, startup opportunities"
+python cli.py fetch --topic "AI, coding, startup opportunities"
 ```
 
 Analyze only:
 
 ```bash
-python isolated_rss_codex_agent/cli.py analyze --input-file isolated_rss_codex_agent/inputs/<batch>.md --mode rules
+python cli.py analyze --input-file inputs/<batch>.md --mode rules
+python cli.py --report-lang zh analyze --input-file inputs/<batch>.md --mode skill
 ```
 
-Run the full pipeline:
+Full pipeline:
 
 ```bash
-python isolated_rss_codex_agent/cli.py run --analysis-mode auto
+python cli.py run --analysis-mode auto
 ```
 
-Generate score report:
+Score report:
 
 ```bash
-python isolated_rss_codex_agent/cli.py report
+python cli.py report
 ```
 
-归档旧批次（保留最新的 `*-rss-batch` 及配对的 `*-rss-analysis` / `*-skill-analysis`，不动 `README.md` 与 `feed_scores_report.md`）：
+Archive old batches (keeps newest `*-rss-batch` and paired analyses):
 
 ```bash
-python isolated_rss_codex_agent/cli.py archive
-python isolated_rss_codex_agent/cli.py archive --dry-run -v
+python cli.py archive
+python cli.py archive --dry-run -v
+python cli.py archive --interval 3600
 ```
 
-持续每隔 N 秒执行一次归档（适合长期跑 pipeline 时后台清理）：
+## Validation
 
-```bash
-python isolated_rss_codex_agent/cli.py archive --interval 3600
-```
+The CLI flow has been exercised with: `check`, `fetch`, `analyze` (rules/skill), `run`, `report`, `archive`, and `interactive`.
 
-## Validation status
-
-The refactored CLI flow has been validated locally with:
-
-- `cli.py --help`
-- `cli.py check`
-- `cli.py fetch`
-- `cli.py analyze --mode rules`
-- `cli.py run --analysis-mode auto`
-- `cli.py report`
-
-The latest full validation produced:
-
-- `inputs/cli-run-test-rss-batch.md`
-- `inputs/cli-run-test-rss-batch.json`
-- `outputs/cli-run-test-rss-analysis.md`
-- `outputs/cli-run-test-rss-analysis.json`
-- `outputs/feed_scores_report.md`
+See also **`RUNBOOK.md`** for operational notes.

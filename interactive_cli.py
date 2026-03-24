@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Callable
 
 from feed_report import DEFAULT_REPORT_PATH
+from i18n import resolve_report_lang, set_active_lang, t, write_stored_report_lang, write_stored_ui_lang
 from settings import load_settings
-
-# Defaults mirror cli.py (avoid importing cli at module load — circular import).
 
 
 def _root() -> Path:
@@ -17,18 +16,15 @@ def _root() -> Path:
 
 def _require_tty() -> bool:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print(
-            "interactive 模式需要交互式终端（TTY）。"
-            "请在终端中运行，或使用子命令：python cli.py run --help",
-            file=sys.stderr,
-        )
+        print(t("interactive.tty"), file=sys.stderr)
         return False
     return True
 
 
-def _pause(message: str = "按 Enter 返回菜单…") -> None:
+def _pause(message: str | None = None) -> None:
+    msg = message if message is not None else t("interactive.pause")
     try:
-        input(message)
+        input(msg)
     except EOFError:
         pass
 
@@ -71,10 +67,10 @@ def _wrap_run(label: str, fn: Callable[[], int]) -> None:
     print(f"\n── {label} ──")
     try:
         code = fn()
-        print(f"\n完成（退出码 {code}）")
+        print("\n" + t("interactive.wrap.done", code=code))
     except Exception as exc:
-        print(f"\n错误: {exc}")
-        print("提示: 检查路径、配置与网络；仍可用非交互命令重试。")
+        print("\n" + t("interactive.wrap.error", exc=str(exc)))
+        print(t("interactive.hint"))
     _pause()
 
 
@@ -91,30 +87,61 @@ def run_interactive_menu() -> int:
 
     settings = load_settings()
 
-    # Lazy import after cli is fully loaded
     import cli as cli_mod
 
     while True:
         _clear_screen()
-        _banner("RSS Agent 交互菜单")
+        _banner(t("interactive.banner"))
         print(
-            "\n请选择操作：\n"
-            "  [1] 检查 Skill 环境 (check)\n"
-            "  [2] 抓取 RSS → inputs (fetch)\n"
-            "  [3] 分析已有批次 (analyze)\n"
-            "  [4] 完整流程 fetch+analyze+反馈+报告 (run)\n"
-            "  [5] 生成 feed 评分报告 (report)\n"
-            "  [6] 查看 feed_scores (score show)\n"
-            "  [7] 重置 feed_scores (score reset)\n"
-            "  [8] 归档旧批次 (archive)\n"
-            "  [9] 显示常用非交互命令示例\n"
-            "  [0] 退出\n"
+            "\n"
+            + t("interactive.menu.header")
+            + "\n"
+            + t("interactive.menu.1")
+            + "\n"
+            + t("interactive.menu.2")
+            + "\n"
+            + t("interactive.menu.3")
+            + "\n"
+            + t("interactive.menu.4")
+            + "\n"
+            + t("interactive.menu.5")
+            + "\n"
+            + t("interactive.menu.6")
+            + "\n"
+            + t("interactive.menu.7")
+            + "\n"
+            + t("interactive.menu.8")
+            + "\n"
+            + t("interactive.menu.9")
+            + "\n"
+            + t("interactive.menu.10")
+            + "\n"
+            + t("interactive.menu.0")
+            + "\n"
         )
-        choice = input("请选择 [0-9]: ").strip()
+        choice = input(t("interactive.menu.prompt")).strip()
 
         if choice == "0":
-            print("再见。")
+            print(t("interactive.goodbye"))
             return 0
+
+        if choice == "10":
+            print("\n── " + t("interactive.lang.title") + " ──")
+            pick = input(t("interactive.lang.prompt")).strip()
+            if pick == "2" or pick.lower() == "zh":
+                write_stored_ui_lang("zh")
+                write_stored_report_lang("zh")
+                set_active_lang("zh")
+                print(t("interactive.lang.saved", code="zh"))
+            elif pick == "1" or pick.lower() == "en":
+                write_stored_ui_lang("en")
+                write_stored_report_lang("en")
+                set_active_lang("en")
+                print(t("interactive.lang.saved", code="en"))
+            else:
+                print(t("interactive.lang.cancel"))
+            _pause()
+            continue
 
         if choice == "1":
             _wrap_run("check", lambda: cli_mod.cmd_check(Namespace()))
@@ -122,9 +149,9 @@ def run_interactive_menu() -> int:
 
         if choice == "2":
             def do_fetch() -> int:
-                topic = _prompt(str(settings["topic"]), "topic")
-                oname = _prompt("", "输出文件名 (留空则自动生成，如 2026-..-rss-batch.md)")
-                lim = _prompt(str(settings["per_feed_limit"]), "每源条数 per_feed_limit")
+                topic = _prompt(str(settings["topic"]), t("interactive.topic"))
+                oname = _prompt("", t("interactive.fetch.out_name"))
+                lim = _prompt(str(settings["per_feed_limit"]), t("interactive.fetch.per_limit"))
                 return cli_mod.cmd_fetch(
                     Namespace(
                         feeds_file=str(default_feeds),
@@ -147,20 +174,18 @@ def run_interactive_menu() -> int:
             def do_analyze() -> int:
                 batches = _list_batch_md(default_inputs)
                 if not batches:
-                    raise RuntimeError(f"未找到 *-rss-batch.md，目录: {default_inputs}")
-                print("\n可用批次：")
+                    raise RuntimeError(t("interactive.analyze.none", path=str(default_inputs)))
+                print("\n" + t("interactive.analyze.list"))
                 for i, p in enumerate(batches, start=1):
                     print(f"  [{i}] {p.name}")
-                idx_s = input("输入序号 (直接 Enter 选 1): ").strip() or "1"
+                idx_s = input(t("interactive.analyze.pick")).strip() or "1"
                 idx = int(idx_s)
                 if idx < 1 or idx > len(batches):
-                    raise RuntimeError("无效序号")
+                    raise RuntimeError(t("interactive.analyze.bad_idx"))
                 path = batches[idx - 1]
-                mode_s = (
-                    input("模式 rules / skill [rules]: ").strip().lower() or "rules"
-                )
+                mode_s = input(t("interactive.analyze.mode")).strip().lower() or "rules"
                 if mode_s not in {"rules", "skill"}:
-                    raise RuntimeError("模式必须是 rules 或 skill")
+                    raise RuntimeError(t("interactive.analyze.bad_mode"))
                 return cli_mod.cmd_analyze(
                     Namespace(
                         input_file=str(path),
@@ -169,6 +194,7 @@ def run_interactive_menu() -> int:
                         mode=mode_s,
                         skill_name="tech-opportunity-skill",
                         log_level=str(settings["log_level"]),
+                        report_lang=resolve_report_lang(None),
                     )
                 )
 
@@ -177,13 +203,11 @@ def run_interactive_menu() -> int:
 
         if choice == "4":
             def do_run() -> int:
-                topic = _prompt(str(settings["topic"]), "topic")
-                mode = (
-                    _prompt(str(settings["analysis_mode"]), "analysis_mode (rules/skill/auto)")
-                )
+                topic = _prompt(str(settings["topic"]), t("interactive.topic"))
+                mode = _prompt(str(settings["analysis_mode"]), t("interactive.run.mode"))
                 if mode not in {"rules", "skill", "auto"}:
-                    raise RuntimeError("analysis_mode 必须是 rules / skill / auto")
-                prefix = _prompt("", "name_prefix (留空=时间戳)")
+                    raise RuntimeError(t("interactive.run.bad_mode"))
+                prefix = _prompt("", t("interactive.run.prefix"))
                 return cli_mod.cmd_run(
                     Namespace(
                         topic=topic,
@@ -197,6 +221,7 @@ def run_interactive_menu() -> int:
                         analysis_mode=mode,
                         skill_name="tech-opportunity-skill",
                         log_level=str(settings["log_level"]),
+                        report_lang=resolve_report_lang(None),
                     )
                 )
 
@@ -224,9 +249,9 @@ def run_interactive_menu() -> int:
 
         if choice == "7":
             def do_reset() -> int:
-                confirm = input("确认重置 feed_scores？输入大写 YES: ").strip()
+                confirm = input(t("interactive.reset.confirm")).strip()
                 if confirm != "YES":
-                    print("已取消。")
+                    print(t("interactive.reset.cancel"))
                     return 1
                 return cli_mod.cmd_score_reset(Namespace(scores_file=str(scores_file)))
 
@@ -236,13 +261,19 @@ def run_interactive_menu() -> int:
         if choice == "8":
             def do_archive_menu() -> int:
                 print(
-                    "\n归档子菜单：\n"
-                    "  [1] 仅预览 (dry-run -v)\n"
-                    "  [2] 执行归档一次\n"
-                    "  [3] 定时归档 (每 N 秒，Ctrl+C 停止)\n"
-                    "  [0] 返回\n"
+                    "\n"
+                    + t("interactive.archive.sub")
+                    + "\n"
+                    + t("interactive.archive.1")
+                    + "\n"
+                    + t("interactive.archive.2")
+                    + "\n"
+                    + t("interactive.archive.3")
+                    + "\n"
+                    + t("interactive.archive.0")
+                    + "\n"
                 )
-                sub = input("请选择: ").strip()
+                sub = input(t("interactive.archive.pick")).strip()
                 if sub == "0":
                     return 0
                 if sub == "1":
@@ -270,7 +301,7 @@ def run_interactive_menu() -> int:
                         )
                     )
                 if sub == "3":
-                    raw = _prompt("3600", "间隔秒数")
+                    raw = _prompt("3600", t("interactive.archive.interval"))
                     return cli_mod.cmd_archive(
                         Namespace(
                             inputs_dir=str(default_inputs),
@@ -282,7 +313,7 @@ def run_interactive_menu() -> int:
                             verbose=False,
                         )
                     )
-                print("无效选择。")
+                print(t("interactive.archive.bad"))
                 return 1
 
             _wrap_run("archive", do_archive_menu)
@@ -290,7 +321,9 @@ def run_interactive_menu() -> int:
 
         if choice == "9":
             print(
-                "\n常用命令（可复制到脚本/CI）：\n"
+                "\n"
+                + t("interactive.examples.title")
+                + "\n"
                 "  python cli.py check\n"
                 "  python cli.py fetch --topic \"...\"\n"
                 "  python cli.py analyze --input-file inputs/<batch>.md --mode rules\n"
@@ -298,9 +331,10 @@ def run_interactive_menu() -> int:
                 "  python cli.py report\n"
                 "  python cli.py score show\n"
                 "  python cli.py archive --dry-run -v\n"
+                "  python cli.py lang set zh\n"
             )
             _pause()
             continue
 
-        print("无效输入，请输入 0-9。")
-        _pause("按 Enter 继续…")
+        print(t("interactive.invalid"))
+        _pause(t("interactive.pause_short"))

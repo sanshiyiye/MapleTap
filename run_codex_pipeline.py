@@ -8,6 +8,7 @@ from analyze_batch import run_analysis, run_skill_analysis
 from feed_feedback import apply_analysis_feedback
 from feed_report import DEFAULT_REPORT_PATH, generate_report
 from fetch_batch import DEFAULT_SCORES_FILE, run_fetch
+from i18n import resolve_report_lang
 from logging_utils import setup_logger
 from settings import load_settings
 
@@ -30,6 +31,7 @@ def run_pipeline(
     analysis_mode: str,
     skill_name: str,
     log_level: str | None = None,
+    report_lang: str = "en",
 ) -> dict[str, object]:
     logger = setup_logger("rss_agent.pipeline", log_level or str(load_settings().get("log_level", "INFO")))
     timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
@@ -73,6 +75,7 @@ def run_pipeline(
                 output_file=output_name,
                 skill_name=skill_name,
                 log_level=log_level,
+                report_lang=report_lang,
             )
             used_mode = "skill"
         except Exception as exc:
@@ -82,6 +85,7 @@ def run_pipeline(
                 output_dir=DEFAULT_OUTPUT_DIR,
                 output_file=output_name,
                 log_level=log_level,
+                report_lang=report_lang,
             )
             used_mode = "rules"
     elif analysis_mode == "skill":
@@ -91,6 +95,7 @@ def run_pipeline(
             output_file=output_name,
             skill_name=skill_name,
             log_level=log_level,
+            report_lang=report_lang,
         )
         used_mode = "skill"
     else:
@@ -99,6 +104,7 @@ def run_pipeline(
             output_dir=DEFAULT_OUTPUT_DIR,
             output_file=output_name,
             log_level=log_level,
+            report_lang=report_lang,
         )
         used_mode = "rules"
 
@@ -139,6 +145,12 @@ def main() -> int:
     parser.add_argument("--analysis-mode", choices=["rules", "skill", "auto"], default=str(settings["analysis_mode"]))
     parser.add_argument("--skill-name", default="tech-opportunity-skill")
     parser.add_argument("--log-level", default=str(settings["log_level"]))
+    parser.add_argument(
+        "--report-lang",
+        choices=["en", "zh"],
+        default=None,
+        help="Analysis Markdown language (en|zh). Default: RSS_AGENT_REPORT_LANG, locale.json report_lang, or en.",
+    )
     args = parser.parse_args()
 
     result = run_pipeline(
@@ -153,6 +165,7 @@ def main() -> int:
         analysis_mode=args.analysis_mode,
         skill_name=args.skill_name,
         log_level=args.log_level,
+        report_lang=resolve_report_lang(args.report_lang),
     )
 
     print(f"input={result['input']}")
