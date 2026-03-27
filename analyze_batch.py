@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -26,12 +27,34 @@ class NewsItem:
     link: str
     item_type: str
     summary: str
+    canonical_url: str = ""
+    normalized_title: str = ""
+    dedupe_key: str = ""
+    dedupe_group_id: str = ""
+    duplicate_count: int = 0
+    duplicate_sources: list[str] | None = None
+    duplicate_reason: str = ""
+    relevance_reason: str = ""
+    recency_score: float = 0.0
+    authority_score: float = 0.0
+    relevance_score: float = 0.0
+    convergence_score: float = 0.0
+    novelty_score: float = 0.0
+    item_quality_score: float = 0.0
 
 
 HIGH_SIGNAL_RULES = [
     {
         "name": "developer_ai",
-        "keywords": ["ai", "agent", "llm", "copilot", "coding model", "developer tool", "open source"],
+        "keywords": [
+            "ai",
+            "agent",
+            "llm",
+            "copilot",
+            "coding model",
+            "developer tool",
+            "open source",
+        ],
         "opportunity_type": "developer_tools",
         "judgment": "high",
         "reason": "该条目直接体现了 AI 与开发工作流升级带来的真实需求，具备较强产品化信号。",
@@ -51,7 +74,14 @@ HIGH_SIGNAL_RULES = [
     },
     {
         "name": "infra_signal",
-        "keywords": ["security", "outage", "incident", "infrastructure", "observability", "supply chain"],
+        "keywords": [
+            "security",
+            "outage",
+            "incident",
+            "infrastructure",
+            "observability",
+            "supply chain",
+        ],
         "opportunity_type": "infrastructure",
         "judgment": "medium",
         "reason": "该条目指向稳定性、治理或运维刚需，通常具备可重复出现的长期需求。",
@@ -63,7 +93,13 @@ HIGH_SIGNAL_RULES = [
 
 LOW_SIGNAL_RULES = [
     {
-        "keywords": ["newsletter", "podcast", "welcome back", "getting started", "beginner"],
+        "keywords": [
+            "newsletter",
+            "podcast",
+            "welcome back",
+            "getting started",
+            "beginner",
+        ],
         "reason": "该内容更偏入门或宣传信息，机会信号强度较弱。",
         "score": 24,
     },
@@ -139,7 +175,58 @@ def parse_items(markdown: str) -> list[NewsItem]:
     return items
 
 
-def score_item(item: NewsItem) -> tuple[int, dict[str, str] | None, dict[str, str] | None]:
+def parse_items_json(json_path: Path) -> list[NewsItem]:
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    items: list[NewsItem] = []
+    for raw in payload.get("items", []):
+        if not isinstance(raw, dict):
+            continue
+        items.append(
+            NewsItem(
+                title=str(raw.get("title", "")).strip(),
+                source=str(raw.get("source", "")).strip(),
+                source_feed=str(
+                    raw.get("source_feed_url", raw.get("source_feed", "")).strip()
+                ),
+                date=str(raw.get("date", "")).strip(),
+                link=str(raw.get("link", "")).strip(),
+                item_type=str(raw.get("item_type", "")).strip(),
+                summary=" ".join(str(raw.get("summary", "")).strip().split()),
+                canonical_url=str(raw.get("canonical_url", "")).strip(),
+                normalized_title=str(raw.get("normalized_title", "")).strip(),
+                dedupe_key=str(raw.get("dedupe_key", "")).strip(),
+                dedupe_group_id=str(raw.get("dedupe_group_id", "")).strip(),
+                duplicate_count=int(raw.get("duplicate_count", 0) or 0),
+                duplicate_sources=[
+                    str(x) for x in raw.get("duplicate_sources", []) if str(x).strip()
+                ]
+                or [],
+                duplicate_reason=str(raw.get("duplicate_reason", "")).strip(),
+                relevance_reason=str(raw.get("relevance_reason", "")).strip(),
+                recency_score=float(raw.get("recency_score", 0.0) or 0.0),
+                authority_score=float(raw.get("authority_score", 0.0) or 0.0),
+                relevance_score=float(raw.get("relevance_score", 0.0) or 0.0),
+                convergence_score=float(raw.get("convergence_score", 0.0) or 0.0),
+                novelty_score=float(raw.get("novelty_score", 0.0) or 0.0),
+                item_quality_score=float(raw.get("item_quality_score", 0.0) or 0.0),
+            )
+        )
+    return items
+
+
+def load_input_items(input_path: Path) -> list[NewsItem]:
+    json_path = input_path.with_suffix(".json")
+    if json_path.exists():
+        try:
+            return parse_items_json(json_path)
+        except Exception:
+            pass
+    return parse_items(input_path.read_text(encoding="utf-8"))
+
+
+def score_item(
+    item: NewsItem,
+) -> tuple[int, dict[str, str] | None, dict[str, str] | None]:
     haystack = f"{item.title} {item.summary}".lower()
     best_rule: dict[str, str] | None = None
     best_score = 40
@@ -172,7 +259,9 @@ def _low_reason_localized(low_rule: dict[str, str] | None, report_lang: str) -> 
     return str(low_rule["reason"])
 
 
-def _high_fields_localized(rule: dict[str, str], report_lang: str) -> tuple[str, str, str]:
+def _high_fields_localized(
+    rule: dict[str, str], report_lang: str
+) -> tuple[str, str, str]:
     if report_lang != "en":
         return str(rule["reason"]), str(rule["risk"]), str(rule["action"])
     name = str(rule.get("name", ""))
@@ -182,7 +271,7 @@ def _high_fields_localized(rule: dict[str, str], report_lang: str) -> tuple[str,
     return str(rule["reason"]), str(rule["risk"]), str(rule["action"])
 
 
-def analyze_item(item: NewsItem, report_lang: str = "zh") -> dict[str, str | int]:
+def analyze_item(item: NewsItem, report_lang: str = "zh") -> dict[str, object]:
     lang = report_lang if report_lang in ("en", "zh") else "zh"
     score, rule, low_rule = score_item(item)
     adjusted_score = score + int(SOURCE_WEIGHTS.get(item.source.lower(), 0))
@@ -201,6 +290,10 @@ def analyze_item(item: NewsItem, report_lang: str = "zh") -> dict[str, str | int
             "risk": t("report.no_rule.risk", lang=lang),
             "action": t("report.no_rule.action", lang=lang),
             "score": adjusted_score,
+            "score_breakdown": build_score_breakdown(item),
+            "duplicate_info": build_duplicate_info(item),
+            "why_high": build_why_high(item),
+            "why_low": build_why_low(item),
         }
 
     reason, risk, action = _high_fields_localized(rule, lang)
@@ -216,7 +309,58 @@ def analyze_item(item: NewsItem, report_lang: str = "zh") -> dict[str, str | int
         "risk": risk,
         "action": action,
         "score": adjusted_score,
+        "score_breakdown": build_score_breakdown(item),
+        "duplicate_info": build_duplicate_info(item),
+        "why_high": build_why_high(item),
+        "why_low": build_why_low(item),
     }
+
+
+def build_score_breakdown(item: NewsItem) -> dict[str, float | str]:
+    return {
+        "item_quality_score": round(float(item.item_quality_score), 2),
+        "recency_score": round(float(item.recency_score), 2),
+        "authority_score": round(float(item.authority_score), 2),
+        "relevance_score": round(float(item.relevance_score), 2),
+        "convergence_score": round(float(item.convergence_score), 2),
+        "novelty_score": round(float(item.novelty_score), 2),
+        "relevance_reason": item.relevance_reason,
+    }
+
+
+def build_duplicate_info(item: NewsItem) -> dict[str, str | int | list[str]]:
+    return {
+        "duplicate_count": int(item.duplicate_count),
+        "duplicate_reason": item.duplicate_reason,
+        "duplicate_sources": list(item.duplicate_sources or []),
+        "dedupe_group_id": item.dedupe_group_id,
+    }
+
+
+def build_why_high(item: NewsItem) -> list[str]:
+    reasons: list[str] = []
+    if item.relevance_score >= 80:
+        reasons.append("high_topic_relevance")
+    if item.authority_score >= 80:
+        reasons.append("strong_source_authority")
+    if item.convergence_score >= 75:
+        reasons.append("multi_source_convergence")
+    if item.recency_score >= 85:
+        reasons.append("fresh_signal")
+    return reasons
+
+
+def build_why_low(item: NewsItem) -> list[str]:
+    reasons: list[str] = []
+    if item.duplicate_count > 0:
+        reasons.append("duplicate_pressure")
+    if item.novelty_score < 65:
+        reasons.append("low_novelty")
+    if item.relevance_score < 60:
+        reasons.append("weak_topic_match")
+    if item.authority_score < 65:
+        reasons.append("lower_source_authority")
+    return reasons
 
 
 def score_to_rating(score: int) -> str:
@@ -269,7 +413,7 @@ def judgment_label(judgment: str) -> str:
 
 
 def render_output(
-    analyses: list[dict[str, str | int]],
+    analyses: list[dict[str, object]],
     _source_name: str,
     _mode: str,
     report_lang: str = "zh",
@@ -302,7 +446,7 @@ def render_output(
         mapped = t(key, lang=lang)
         return mapped if mapped != key else t("report.type.developer_tools", lang=lang)
 
-    def reason_points(item: dict[str, str | int]) -> list[str]:
+    def reason_points(item: dict[str, object]) -> list[str]:
         title = str(item["title"]).lower()
         source = str(item["source"]).lower()
         points = [str(item["reason"])]
@@ -316,7 +460,7 @@ def render_output(
             points.append(t("report.extra.reason_source", lang=lang))
         return points[:3]
 
-    def risk_points(item: dict[str, str | int]) -> list[str]:
+    def risk_points(item: dict[str, object]) -> list[str]:
         title = str(item["title"]).lower()
         points = [str(item["risk"])]
         if any(k in title for k in ["github", "copilot", "openai"]):
@@ -350,7 +494,10 @@ def render_output(
             [
                 f"### {index}. {analysis['title']}",
                 label_line("report.field.summary", str(analysis["summary"])),
-                label_line("report.field.opportunity_type", type_label(str(analysis["opportunity_type"]))),
+                label_line(
+                    "report.field.opportunity_type",
+                    type_label(str(analysis["opportunity_type"])),
+                ),
                 label_line("report.field.judgment", judgment_stars(score)),
                 label_open("report.field.reasons"),
                 *[f"  - {point}" for point in reasons],
@@ -418,7 +565,9 @@ def ensure_output_appendices(raw_output: str, items: list[NewsItem]) -> str:
 
 def _strip_tail_original_links(markdown: str) -> str:
     """Remove trailing ## Original Links … (aligned with reference report; no appendix)."""
-    return re.sub(r"\n##\s+Original\s+Links\s*\n[\s\S]*\Z", "", markdown.rstrip(), flags=re.I).rstrip()
+    return re.sub(
+        r"\n##\s+Original\s+Links\s*\n[\s\S]*\Z", "", markdown.rstrip(), flags=re.I
+    ).rstrip()
 
 
 def _normalize_skill_overview(text: str) -> str:
@@ -435,7 +584,9 @@ def extract_section(markdown: str, heading: str, next_headings: list[str]) -> st
     start = start_match.end()
     end = len(markdown)
     for next_heading in next_headings:
-        next_match = re.search(rf"^##\s+{re.escape(next_heading)}\s*$", markdown[start:], re.M)
+        next_match = re.search(
+            rf"^##\s+{re.escape(next_heading)}\s*$", markdown[start:], re.M
+        )
         if next_match:
             end = min(end, start + next_match.start())
     return markdown[start:end].strip()
@@ -459,10 +610,10 @@ def extract_single_value(body: str, labels: list[str]) -> str:
         for label in labels:
             prefix = f"- {label}："
             if normalized.startswith(prefix):
-                return normalized[len(prefix):].strip()
+                return normalized[len(prefix) :].strip()
             prefix_ascii = f"- {label}:"
             if normalized.startswith(prefix_ascii):
-                return normalized[len(prefix_ascii):].strip()
+                return normalized[len(prefix_ascii) :].strip()
     return ""
 
 
@@ -586,7 +737,9 @@ def _skill_extract_section(
     return extract_section(raw_output, zh_title, zh_next + tail)
 
 
-def render_skill_cards_exact(items: list[NewsItem], raw_output: str, report_lang: str = "zh") -> str:
+def render_skill_cards_exact(
+    items: list[NewsItem], raw_output: str, report_lang: str = "zh"
+) -> str:
     lang = report_lang if report_lang in ("en", "zh") else "zh"
     colon = "：" if lang == "zh" else ": "
     prefer_zh = lang == "zh"
@@ -646,11 +799,15 @@ def render_skill_cards_exact(items: list[NewsItem], raw_output: str, report_lang
 
     for index, (title, body) in enumerate(split_card_sections(cards_block), start=1):
         item = item_map.get(title)
-        summary = extract_single_value(body, ["摘要", "Summary"]) or (item.summary if item else "")
+        summary = extract_single_value(body, ["摘要", "Summary"]) or (
+            item.summary if item else ""
+        )
         opportunity_type = extract_single_value(body, ["机会类型", "Opportunity Type"])
         judgment = extract_single_value(body, ["机会判断", "Judgment"])
         action = extract_single_value(body, ["建议动作", "Action"])
-        link = extract_single_value(body, ["原文链接", "Link", "Source link"]) or (item.link if item else "")
+        link = extract_single_value(body, ["原文链接", "Link", "Source link"]) or (
+            item.link if item else ""
+        )
         reasons = extract_block_values(body, ["机会理由", "Reason"])
         risks = extract_block_values(body, ["风险", "Risk"])
 
@@ -716,7 +873,7 @@ def build_analysis_json(
     output_path: Path,
     mode: str,
     items: list[NewsItem],
-    analyses: list[dict[str, str | int]] | None,
+    analyses: list[dict[str, object]] | None,
     raw_output: str,
 ) -> dict:
     return {
@@ -739,7 +896,7 @@ def write_analysis_outputs(
     output_path: Path,
     mode: str,
     items: list[NewsItem],
-    analyses: list[dict[str, str | int]] | None,
+    analyses: list[dict[str, object]] | None,
     raw_output: str,
 ) -> None:
     atomic_write_text(output_path, raw_output)
@@ -764,12 +921,16 @@ def run_skill_analysis(
     log_level: str | None = None,
     report_lang: str = "zh",
 ) -> tuple[Path, int]:
-    logger = setup_logger("rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO")))
+    logger = setup_logger(
+        "rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO"))
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown = input_path.read_text(encoding="utf-8")
-    items = parse_items(markdown)
+    items = load_input_items(input_path)
     rl = report_lang if report_lang in ("en", "zh") else "zh"
-    system_prompt, user_prompt = build_skill_prompt(skill_name, markdown, report_lang=rl)
+    system_prompt, user_prompt = build_skill_prompt(
+        skill_name, markdown, report_lang=rl
+    )
     raw_output = call_openai_compatible(system_prompt, user_prompt)
     raw_output = render_skill_cards_exact(items, raw_output, report_lang=rl)
     raw_output = ensure_output_appendices(raw_output, items)
@@ -784,7 +945,9 @@ def run_skill_analysis(
         analyses=None,
         raw_output=raw_output,
     )
-    logger.info("analysis_completed mode=skill output=%s items=%s", output_path, len(items))
+    logger.info(
+        "analysis_completed mode=skill output=%s items=%s", output_path, len(items)
+    )
     return output_path, len(items)
 
 
@@ -795,10 +958,12 @@ def run_analysis(
     log_level: str | None = None,
     report_lang: str = "zh",
 ) -> tuple[Path, int]:
-    logger = setup_logger("rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO")))
+    logger = setup_logger(
+        "rss_agent.analyze", log_level or str(load_settings().get("log_level", "INFO"))
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown = input_path.read_text(encoding="utf-8")
-    items = parse_items(markdown)
+    items = load_input_items(input_path)
     rl = report_lang if report_lang in ("en", "zh") else "zh"
     analyses = [analyze_item(item, report_lang=rl) for item in items]
 
@@ -814,16 +979,24 @@ def run_analysis(
         analyses=analyses,
         raw_output=raw_output,
     )
-    logger.info("analysis_completed mode=rules output=%s items=%s", output_path, len(items))
+    logger.info(
+        "analysis_completed mode=rules output=%s items=%s", output_path, len(items)
+    )
     return output_path, len(items)
 
 
 def main() -> int:
     settings = load_settings()
-    parser = argparse.ArgumentParser(description="Analyze a normalized RSS input batch.")
+    parser = argparse.ArgumentParser(
+        description="Analyze a normalized RSS input batch."
+    )
     parser.add_argument("--input-file", required=True)
     parser.add_argument("--output-file", default=None)
-    parser.add_argument("--mode", choices=["rules", "skill"], default=str(settings["analysis_mode"]).replace("auto", "rules"))
+    parser.add_argument(
+        "--mode",
+        choices=["rules", "skill"],
+        default=str(settings["analysis_mode"]).replace("auto", "rules"),
+    )
     parser.add_argument("--skill-name", default="tech-opportunity-skill")
     parser.add_argument("--log-level", default=str(settings["log_level"]))
     parser.add_argument(

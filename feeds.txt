@@ -8,8 +8,7 @@
 
 https://news.ycombinator.com/rss
 https://techcrunch.com/feed/
-https://github.blog/feed/
-# 36kr 常对机房/脚本返回验证码页而非 RSS；本地宽带有时可用。需要时请取消注释：
-# https://36kr.com/feed
+https://www.theverge.com/rss/index.xml
+https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.xml
 https://www.wired.com/feed/rss
 https://www.technologyreview.com/feed/

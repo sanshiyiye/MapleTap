@@ -1,0 +1,330 @@
+{
+  "schema": "history_snapshot.v1",
+  "generated_at": "2026-03-27T16:00:18Z",
+  "topic": "Hacker News, AI, coding, startup opportunities",
+  "input_path": "D:\\workspace\\AI\\isolated_rss_codex_agent\\inputs\\2026-03-27-235932-rss-batch.md",
+  "output_path": "D:\\workspace\\AI\\isolated_rss_codex_agent\\outputs\\2026-03-27-235932-rss-analysis.md",
+  "feeds": [
+    {
+      "feed_url": "https://github.blog/feed/",
+      "source": "The GitHub Blog",
+      "score": 93.16,
+      "quality_score": 92.41,
+      "avg_item_score": 0.0,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://news.ycombinator.com/rss",
+      "source": "Hacker News",
+      "score": 80.57,
+      "quality_score": 83.52,
+      "avg_item_score": 70.03,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://techcrunch.com/feed/",
+      "source": "TechCrunch",
+      "score": 70.46,
+      "quality_score": 77.53,
+      "avg_item_score": 67.88,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.xml",
+      "source": "GitHub All Languages Daily Trending",
+      "score": 64.87,
+      "quality_score": 68.19,
+      "avg_item_score": 55.85,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://www.theverge.com/rss/index.xml",
+      "source": "The Verge",
+      "score": 64.16,
+      "quality_score": 70.87,
+      "avg_item_score": 63.85,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://www.technologyreview.com/feed/",
+      "source": "MIT Technology Review",
+      "score": 63.05,
+      "quality_score": 71.35,
+      "avg_item_score": 67.85,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://www.wired.com/feed/rss",
+      "source": "WIRED",
+      "score": 62.68,
+      "quality_score": 70.01,
+      "avg_item_score": 63.45,
+      "duplicate_rate": 0.0,
+      "last_status": "ok"
+    },
+    {
+      "feed_url": "https://36kr.com/feed",
+      "source": "https://36kr.com/feed",
+      "score": 61.97,
+      "quality_score": 69.72,
+      "avg_item_score": 0.0,
+      "duplicate_rate": 0.0,
+      "last_status": "error"
+    }
+  ],
+  "watchlist": {
+    "schema": "watchlist.v1",
+    "topics": [
+      {
+        "name": "ai coding",
+        "keywords": [
+          "ai",
+          "coding",
+          "copilot",
+          "agent",
+          "developer tool"
+        ],
+        "hit_count": 13,
+        "last_hit_at": "2026-03-27T16:00:18Z",
+        "matched_feeds": {
+          "https://news.ycombinator.com/rss": 1,
+          "https://techcrunch.com/feed/": 3,
+          "https://www.theverge.com/rss/index.xml": 2,
+          "https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.xml": 3,
+          "https://www.technologyreview.com/feed/": 1,
+          "https://www.wired.com/feed/rss": 3
+        },
+        "sample_items": [
+          {
+            "title": "Skip the TSA Line: Where to Find Travel by Bus, Train, and Boat",
+            "link": "https://www.wired.com/story/skip-the-tsa-line-where-to-find-travel-by-bus-train-and-boat/",
+            "source": "WIRED",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 63.45
+          },
+          {
+            "title": "Apple Still Plans to Sell iPhones When It Turns 100",
+            "link": "https://www.wired.com/story/apple-50-year-anniversary-artificial-intelligence-iphone/",
+            "source": "WIRED",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 63.45
+          },
+          {
+            "title": "ICE Agents Frustrate Airport Workers as Shutdown Drags On",
+            "link": "https://www.wired.com/story/ice-agents-frustrate-airport-employees-as-shutdown-drags-on/",
+            "source": "WIRED",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 63.45
+          },
+          {
+            "title": "Here’s why some people choose cryonics to store their bodies and brains after death",
+            "link": "https://www.technologyreview.com/2026/03/27/1134705/cryonics-store-bodies-brains-after-death/",
+            "source": "MIT Technology Review",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 67.85
+          },
+          {
+            "title": "virattt/dexter",
+            "link": "https://github.com/virattt/dexter",
+            "source": "GitHub All Languages Daily Trending",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 55.85
+          }
+        ],
+        "last_run_hits": 13
+      },
+      {
+        "name": "startup opportunities",
+        "keywords": [
+          "startup",
+          "founder",
+          "saas",
+          "funding",
+          "automation"
+        ],
+        "hit_count": 0,
+        "last_hit_at": null,
+        "matched_feeds": {},
+        "sample_items": [],
+        "last_run_hits": 0
+      },
+      {
+        "name": "infra signals",
+        "keywords": [
+          "security",
+          "incident",
+          "outage",
+          "supply chain",
+          "infrastructure"
+        ],
+        "hit_count": 1,
+        "last_hit_at": "2026-03-27T16:00:18Z",
+        "matched_feeds": {
+          "https://techcrunch.com/feed/": 1
+        },
+        "sample_items": [
+          {
+            "title": "OpenAI shuts down Sora while Meta gets shut out in court",
+            "link": "https://techcrunch.com/video/openai-shuts-down-sora-while-meta-gets-shut-out-in-court/",
+            "source": "TechCrunch",
+            "matched_at": "2026-03-27T16:00:18Z",
+            "score": 66.25
+          }
+        ],
+        "last_run_hits": 1
+      }
+    ]
+  },
+  "top_items": [
+    {
+      "title": "Iran-linked hackers claim breach of FBI director's personal email",
+      "source": "Hacker News",
+      "source_feed": "https://news.ycombinator.com/rss",
+      "item_quality_score": 73.95,
+      "relevance_score": 59.0,
+      "duplicate_count": 0,
+      "link": "https://www.reuters.com/world/us/iran-linked-hackers-claim-breach-of-fbi-directors-personal-email-doj-official-2026-03-27/"
+    },
+    {
+      "title": "Iranian hackers claim breach of FBI director Kash Patel’s personal email account",
+      "source": "TechCrunch",
+      "source_feed": "https://techcrunch.com/feed/",
+      "item_quality_score": 71.15,
+      "relevance_score": 59.0,
+      "duplicate_count": 0,
+      "link": "https://techcrunch.com/2026/03/27/iranian-hackers-claim-breach-of-fbi-director-kash-patels-personal-email-account/"
+    },
+    {
+      "title": "A Faster Alternative to Jq",
+      "source": "Hacker News",
+      "source_feed": "https://news.ycombinator.com/rss",
+      "item_quality_score": 69.05,
+      "relevance_score": 45.0,
+      "duplicate_count": 0,
+      "link": "https://micahkepe.com/blog/jsongrep/"
+    },
+    {
+      "title": "Anatomy of the .claude/ Folder",
+      "source": "Hacker News",
+      "source_feed": "https://news.ycombinator.com/rss",
+      "item_quality_score": 69.05,
+      "relevance_score": 45.0,
+      "duplicate_count": 0,
+      "link": "https://blog.dailydoseofds.com/p/anatomy-of-the-claude-folder"
+    },
+    {
+      "title": "Installing a Let's Encrypt TLS Certificate on a Brother Printer with Certbot",
+      "source": "Hacker News",
+      "source_feed": "https://news.ycombinator.com/rss",
+      "item_quality_score": 69.05,
+      "relevance_score": 45.0,
+      "duplicate_count": 0,
+      "link": "https://owltec.ca/Other/Installing+a+Let%27s+Encrypt+TLS+certificate+on+a+Brother+printer+automatically+with+Certbot+(%26+Cloudflare)"
+    }
+  ],
+  "errors": [],
+  "source_stats": [
+    {
+      "feed_url": "https://news.ycombinator.com/rss",
+      "source": "Hacker News",
+      "fetched": 5,
+      "kept": 5,
+      "filtered": 0,
+      "status": "ok",
+      "previous_score": 88.72,
+      "current_score": 77.19,
+      "effective_limit": 5,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 70.03,
+      "avg_relevance_score": 47.8,
+      "avg_authority_score": 88.0,
+      "avg_convergence_score": 50.0
+    },
+    {
+      "feed_url": "https://techcrunch.com/feed/",
+      "source": "TechCrunch",
+      "fetched": 4,
+      "kept": 3,
+      "filtered": 1,
+      "status": "ok",
+      "previous_score": 79.26,
+      "current_score": 71.02,
+      "effective_limit": 4,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 67.88,
+      "avg_relevance_score": 49.67,
+      "avg_authority_score": 74.0,
+      "avg_convergence_score": 50.0
+    },
+    {
+      "feed_url": "https://www.theverge.com/rss/index.xml",
+      "source": "The Verge",
+      "fetched": 3,
+      "kept": 2,
+      "filtered": 1,
+      "status": "ok",
+      "previous_score": 69.33,
+      "current_score": 64.16,
+      "effective_limit": 3,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 63.85,
+      "avg_relevance_score": 45.0,
+      "avg_authority_score": 62.0,
+      "avg_convergence_score": 50.0
+    },
+    {
+      "feed_url": "https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.xml",
+      "source": "GitHub All Languages Daily Trending",
+      "fetched": 3,
+      "kept": 3,
+      "filtered": 0,
+      "status": "ok",
+      "previous_score": 72.26,
+      "current_score": 65.22,
+      "effective_limit": 3,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 55.85,
+      "avg_relevance_score": 45.0,
+      "avg_authority_score": 62.0,
+      "avg_convergence_score": 50.0
+    },
+    {
+      "feed_url": "https://www.technologyreview.com/feed/",
+      "source": "MIT Technology Review",
+      "fetched": 3,
+      "kept": 1,
+      "filtered": 2,
+      "status": "ok",
+      "previous_score": 66.1,
+      "current_score": 63.05,
+      "effective_limit": 3,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 67.85,
+      "avg_relevance_score": 45.0,
+      "avg_authority_score": 82.0,
+      "avg_convergence_score": 50.0
+    },
+    {
+      "feed_url": "https://www.wired.com/feed/rss",
+      "source": "WIRED",
+      "fetched": 3,
+      "kept": 3,
+      "filtered": 0,
+      "status": "ok",
+      "previous_score": 67.62,
+      "current_score": 62.68,
+      "effective_limit": 3,
+      "duplicate_rate": 0.0,
+      "avg_item_score": 63.45,
+      "avg_relevance_score": 45.0,
+      "avg_authority_score": 60.0,
+      "avg_convergence_score": 50.0
+    }
+  ]
+}

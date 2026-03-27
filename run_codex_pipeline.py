@@ -3,14 +3,17 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 from analyze_batch import run_analysis, run_skill_analysis
 from feed_feedback import apply_analysis_feedback
 from feed_report import DEFAULT_REPORT_PATH, generate_report
 from fetch_batch import DEFAULT_SCORES_FILE, run_fetch
+from history import DEFAULT_HISTORY_DIR, build_run_snapshot, save_history_snapshot
 from i18n import resolve_report_lang
 from logging_utils import setup_logger
 from settings import load_settings
+from watchlist import DEFAULT_WATCHLIST_PATH, update_watchlist_from_batch
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_FEEDS_FILE = ROOT / "feeds.txt"
@@ -33,7 +36,10 @@ def run_pipeline(
     log_level: str | None = None,
     report_lang: str = "en",
 ) -> dict[str, object]:
-    logger = setup_logger("rss_agent.pipeline", log_level or str(load_settings().get("log_level", "INFO")))
+    settings = load_settings()
+    logger = setup_logger(
+        "rss_agent.pipeline", log_level or str(settings.get("log_level", "INFO"))
+    )
     timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     prefix = name_prefix or timestamp
     input_name = f"{prefix}-rss-batch.md"
@@ -108,13 +114,36 @@ def run_pipeline(
         )
         used_mode = "rules"
 
-    apply_analysis_feedback(input_path=input_path, output_path=output_path, scores_file=scores_file)
-    report_path = generate_report(scores_file=scores_file, report_path=DEFAULT_REPORT_PATH)
+    apply_analysis_feedback(
+        input_path=input_path, output_path=output_path, scores_file=scores_file
+    )
+    watchlist = update_watchlist_from_batch(
+        input_path,
+        watchlist_path=DEFAULT_WATCHLIST_PATH,
+        defaults=cast(list[Any], settings.get("watchlist_topics", [])),
+        seen_at=datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    )
+    report_path = generate_report(
+        scores_file=scores_file,
+        report_path=DEFAULT_REPORT_PATH,
+        watchlist_path=DEFAULT_WATCHLIST_PATH,
+    )
+    history_snapshot = build_run_snapshot(
+        topic=topic,
+        input_path=input_path,
+        output_path=output_path,
+        scores_file=scores_file,
+        watchlist_path=DEFAULT_WATCHLIST_PATH,
+        errors=errors,
+        source_stats=cast(list[dict[str, object]], source_stats),
+    )
+    history_path = save_history_snapshot(history_snapshot, DEFAULT_HISTORY_DIR)
     logger.info(
-        "pipeline_completed input=%s output=%s report=%s fetched_items=%s analyzed_items=%s mode=%s",
+        "pipeline_completed input=%s output=%s report=%s history=%s fetched_items=%s analyzed_items=%s mode=%s",
         input_path,
         output_path,
         report_path,
+        history_path,
         item_count,
         analyzed_count,
         used_mode,
@@ -128,21 +157,33 @@ def run_pipeline(
         "analysis_mode": used_mode,
         "errors": errors,
         "source_stats": source_stats,
+        "watchlist": watchlist,
+        "history": history_path,
     }
 
 
 def main() -> int:
     settings = load_settings()
-    parser = argparse.ArgumentParser(description="Run the isolated RSS pipeline end-to-end.")
+    parser = argparse.ArgumentParser(
+        description="Run the isolated RSS pipeline end-to-end."
+    )
     parser.add_argument("--topic", default=str(settings["topic"]))
     parser.add_argument("--feeds-file", default=str(DEFAULT_FEEDS_FILE))
-    parser.add_argument("--per-feed-limit", type=int, default=int(settings["per_feed_limit"]))
+    parser.add_argument(
+        "--per-feed-limit", type=int, default=int(settings["per_feed_limit"])
+    )
     parser.add_argument("--name-prefix", default=None)
     parser.add_argument("--timeout", type=int, default=int(settings["timeout"]))
     parser.add_argument("--retries", type=int, default=int(settings["retries"]))
-    parser.add_argument("--retry-delay", type=float, default=float(settings["retry_delay"]))
+    parser.add_argument(
+        "--retry-delay", type=float, default=float(settings["retry_delay"])
+    )
     parser.add_argument("--scores-file", default=str(DEFAULT_SCORES_FILE))
-    parser.add_argument("--analysis-mode", choices=["rules", "skill", "auto"], default=str(settings["analysis_mode"]))
+    parser.add_argument(
+        "--analysis-mode",
+        choices=["rules", "skill", "auto"],
+        default=str(settings["analysis_mode"]),
+    )
     parser.add_argument("--skill-name", default="tech-opportunity-skill")
     parser.add_argument("--log-level", default=str(settings["log_level"]))
     parser.add_argument(
@@ -177,16 +218,16 @@ def main() -> int:
     print(f"fetched_items={result['fetched_items']}")
     print(f"analyzed_items={result['analyzed_items']}")
     print(f"analysis_mode={result['analysis_mode']}")
-    errors = list(result["errors"])
+    errors = cast(list[str], result["errors"])
     if errors:
         print(f"errors={len(errors)}")
         for error in errors:
             print(error)
-    for stat in result["source_stats"]:
+    for stat in cast(list[dict[str, object]], result["source_stats"]):
         print(
             f"source={stat['source']} fetched={stat['fetched']} kept={stat['kept']} filtered={stat['filtered']} status={stat['status']} previous_score={stat['previous_score']} current_score={stat['current_score']} effective_limit={stat['effective_limit']}"
         )
-    return 0 if int(result["fetched_items"]) > 0 else 1
+    return 0 if int(cast(int, result["fetched_items"])) > 0 else 1
 
 
 if __name__ == "__main__":

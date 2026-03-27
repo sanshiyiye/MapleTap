@@ -18,6 +18,49 @@ DEFAULT_SETTINGS = {
     "retry_delay": 2.0,
     "analysis_mode": "auto",
     "log_level": "INFO",
+    "dedupe_similarity_threshold": 0.82,
+    "tracking_query_params": [
+        "fbclid",
+        "gclid",
+        "mc_cid",
+        "mc_eid",
+        "ref",
+        "source",
+        "src",
+        "utm_campaign",
+        "utm_content",
+        "utm_medium",
+        "utm_source",
+        "utm_term",
+    ],
+    "scoring_weights": {
+        "relevance": 0.35,
+        "authority": 0.2,
+        "recency": 0.2,
+        "convergence": 0.15,
+        "novelty": 0.1,
+    },
+    "source_authority_overrides": {},
+    "watchlist_topics": [
+        {
+            "name": "ai coding",
+            "keywords": ["ai", "coding", "copilot", "agent", "developer tool"],
+        },
+        {
+            "name": "startup opportunities",
+            "keywords": ["startup", "founder", "saas", "funding", "automation"],
+        },
+        {
+            "name": "infra signals",
+            "keywords": [
+                "security",
+                "incident",
+                "outage",
+                "supply chain",
+                "infrastructure",
+            ],
+        },
+    ],
 }
 
 

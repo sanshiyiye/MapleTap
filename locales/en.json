@@ -1,6 +1,6 @@
 {
-  "cli.description": "Local RSS agent CLI.",
-  "cli.epilog": "Examples:\n  python cli.py --lang zh --save-lang\n  python cli.py lang set en\n  python cli.py check\n  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n  python cli.py analyze --input-file inputs/<batch>.md --mode rules\n  python cli.py run --analysis-mode auto\n  python cli.py archive --dry-run -v\n  python cli.py interactive\n",
+  "cli.description": "RSS source evaluation and topic monitoring CLI.",
+  "cli.epilog": "Core workflow:\n  python cli.py\n  python cli.py run\n  python cli.py report\n  python cli.py watch show\n\nNotes:\n  python cli.py           starts interactive mode when running in a real terminal\n  python cli.py --help    shows the streamlined command help\n\nDebug / step-by-step:\n  python cli.py check\n  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n  python cli.py analyze --input-file inputs/<batch>.md --mode rules\n\nAdvanced maintenance commands still work but are hidden from top-level help: score, archive, lang, interactive.\nUse: python cli.py <command> --help\n",
   "global.lang_help": "UI language en|zh for this run. Default: RSS_AGENT_LANG, else locale.json, else en.",
   "global.save_lang_help": "Persist --lang to locale.json (requires --lang).",
   "cmd.check.help": "Check skill-mode environment readiness.",

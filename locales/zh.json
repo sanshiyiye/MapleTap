@@ -1,6 +1,6 @@
 {
-  "cli.description": "本地 RSS 代理命令行工具。",
-  "cli.epilog": "示例：\n  python cli.py --lang zh --save-lang\n  python cli.py lang set en\n  python cli.py check\n  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n  python cli.py analyze --input-file inputs/<batch>.md --mode rules\n  python cli.py run --analysis-mode auto\n  python cli.py archive --dry-run -v\n  python cli.py interactive\n",
+  "cli.description": "用于 RSS 信源评估和主题监控的命令行工具。",
+  "cli.epilog": "核心流程：\n  python cli.py\n  python cli.py run\n  python cli.py report\n  python cli.py watch show\n\n说明：\n  python cli.py           在真实终端中默认进入交互模式\n  python cli.py --help    显示收敛后的命令帮助\n\n调试 / 分步执行：\n  python cli.py check\n  python cli.py fetch --topic \"AI, coding, startup opportunities\"\n  python cli.py analyze --input-file inputs/<batch>.md --mode rules\n\n高级维护命令仍可用，但默认不在顶层帮助中展开：score、archive、lang、interactive。\n可使用：python cli.py <command> --help\n",
   "global.lang_help": "本次界面语言 en|zh。默认顺序：环境变量 RSS_AGENT_LANG → locale.json → en。",
   "global.save_lang_help": "将本次 --lang 写入 locale.json，作为以后默认语言（须同时提供 --lang）。",
   "cmd.check.help": "检查 Skill 模式环境（API Key 等）是否就绪。",

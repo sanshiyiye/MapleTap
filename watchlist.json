@@ -1,0 +1,104 @@
+{
+  "schema": "watchlist.v1",
+  "updated_at": "2026-03-27T16:00:18Z",
+  "topics": [
+    {
+      "name": "ai coding",
+      "keywords": [
+        "ai",
+        "coding",
+        "copilot",
+        "agent",
+        "developer tool"
+      ],
+      "hit_count": 13,
+      "last_hit_at": "2026-03-27T16:00:18Z",
+      "matched_feeds": {
+        "https://news.ycombinator.com/rss": 1,
+        "https://techcrunch.com/feed/": 3,
+        "https://www.theverge.com/rss/index.xml": 2,
+        "https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.xml": 3,
+        "https://www.technologyreview.com/feed/": 1,
+        "https://www.wired.com/feed/rss": 3
+      },
+      "sample_items": [
+        {
+          "title": "Skip the TSA Line: Where to Find Travel by Bus, Train, and Boat",
+          "link": "https://www.wired.com/story/skip-the-tsa-line-where-to-find-travel-by-bus-train-and-boat/",
+          "source": "WIRED",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 63.45
+        },
+        {
+          "title": "Apple Still Plans to Sell iPhones When It Turns 100",
+          "link": "https://www.wired.com/story/apple-50-year-anniversary-artificial-intelligence-iphone/",
+          "source": "WIRED",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 63.45
+        },
+        {
+          "title": "ICE Agents Frustrate Airport Workers as Shutdown Drags On",
+          "link": "https://www.wired.com/story/ice-agents-frustrate-airport-employees-as-shutdown-drags-on/",
+          "source": "WIRED",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 63.45
+        },
+        {
+          "title": "Here’s why some people choose cryonics to store their bodies and brains after death",
+          "link": "https://www.technologyreview.com/2026/03/27/1134705/cryonics-store-bodies-brains-after-death/",
+          "source": "MIT Technology Review",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 67.85
+        },
+        {
+          "title": "virattt/dexter",
+          "link": "https://github.com/virattt/dexter",
+          "source": "GitHub All Languages Daily Trending",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 55.85
+        }
+      ],
+      "last_run_hits": 13
+    },
+    {
+      "name": "startup opportunities",
+      "keywords": [
+        "startup",
+        "founder",
+        "saas",
+        "funding",
+        "automation"
+      ],
+      "hit_count": 0,
+      "last_hit_at": null,
+      "matched_feeds": {},
+      "sample_items": [],
+      "last_run_hits": 0
+    },
+    {
+      "name": "infra signals",
+      "keywords": [
+        "security",
+        "incident",
+        "outage",
+        "supply chain",
+        "infrastructure"
+      ],
+      "hit_count": 1,
+      "last_hit_at": "2026-03-27T16:00:18Z",
+      "matched_feeds": {
+        "https://techcrunch.com/feed/": 1
+      },
+      "sample_items": [
+        {
+          "title": "OpenAI shuts down Sora while Meta gets shut out in court",
+          "link": "https://techcrunch.com/video/openai-shuts-down-sora-while-meta-gets-shut-out-in-court/",
+          "source": "TechCrunch",
+          "matched_at": "2026-03-27T16:00:18Z",
+          "score": 66.25
+        }
+      ],
+      "last_run_hits": 1
+    }
+  ]
+}
